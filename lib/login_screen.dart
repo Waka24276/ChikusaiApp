@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -12,6 +13,32 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
+  bool _rememberMe = false; // ログイン状態を保持するかどうかのフラグ
+
+  @override
+  void initState() {
+    super.initState();
+    _checkLoginStatus();
+  }
+
+  Future<void> _checkLoginStatus() async {
+    final prefs = await SharedPreferences.getInstance();
+    final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
+    if (isLoggedIn) {
+      final String? savedUsername = prefs.getString('savedUsername');
+      if (mounted && savedUsername != null) {
+        // 画面のビルドが終わった直後にホーム画面へ遷移
+        Future.microtask(() {
+          if (mounted) {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => HomeScreen(username: savedUsername)),
+            );
+          }
+        });
+      }
+    }
+  }
 
   @override
   void dispose() {
@@ -20,9 +47,15 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
-  void _login() {
+  Future<void> _login() async {
     if (_formKey.currentState!.validate()) {
+      if (_rememberMe) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('isLoggedIn', true);
+        await prefs.setString('savedUsername', _usernameController.text);
+      }
       // ログイン成功時にホーム画面に遷移
+      if (!mounted) return;
       Navigator.push(
         context,
         MaterialPageRoute(builder: (context) => HomeScreen(username: _usernameController.text)),
@@ -73,6 +106,18 @@ class _LoginScreenState extends State<LoginScreen> {
                   }
                   return null;
                 },
+              ),
+              const SizedBox(height: 8),
+              CheckboxListTile(
+                title: const Text('ログイン状態を保持する'),
+                value: _rememberMe,
+                onChanged: (value) {
+                  setState(() {
+                    _rememberMe = value ?? false;
+                  });
+                },
+                contentPadding: EdgeInsets.zero,
+                controlAffinity: ListTileControlAffinity.leading,
               ),
               const SizedBox(height: 24),
               ElevatedButton(

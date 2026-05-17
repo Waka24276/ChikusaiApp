@@ -64,6 +64,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isTableView = false; // 集計表表示かどうかの状態
   bool _isLargeImageMode = false; // 画像を大きく表示するかどうかの状態
   bool _showHiddenOnly = false; // 非表示（アーカイブ）された投稿のみを表示するかどうか
+  bool _isPostFormExpanded = true; // 減点登録フォームが開いているかどうか
   final Map<int, int> _gradeClassFilters = {}; // 学年ごとのクラスフィルター状態 (tabIndex: classNum)
 
   @override
@@ -115,6 +116,9 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _pickImage() async {
     final XFile? pickedFile = await _picker.pickImage(
       source: ImageSource.gallery,
+      maxWidth: 800, // 軽量化：画像を最大800pxにリサイズ
+      maxHeight: 800,
+      imageQuality: 70, // 軽量化：画質を少し落として容量削減
     );
     if (pickedFile != null) {
       final bytes = await pickedFile.readAsBytes(); // 画像をバイトデータとして読み込む
@@ -179,6 +183,28 @@ class _HomeScreenState extends State<HomeScreen>
   void _toggleHidePost(Map<String, dynamic> item) async {
     if (item['isHidden'] == true) {
       // すでに非表示の場合は、単に表示に戻す
+      final bool? confirm = await showDialog<bool>(
+        context: context,
+        builder: (BuildContext context) {
+          return AlertDialog(
+            title: const Text('復元の確認'),
+            content: const Text('この減点取り消しを無効にして、減点を復元しますか？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('キャンセル'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('復元'),
+              ),
+            ],
+          );
+        },
+      );
+
+      if (confirm != true) return;
+
       setState(() {
         item['isHidden'] = false;
         item.remove('hiddenReasonImage'); // ストレージ節約のため写真を削除
@@ -208,7 +234,12 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                   OutlinedButton.icon(
                     onPressed: () async {
-                      final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
+                      final XFile? pickedFile = await _picker.pickImage(
+                        source: ImageSource.gallery,
+                        maxWidth: 800,
+                        maxHeight: 800,
+                        imageQuality: 50,
+                      );
                       if (pickedFile != null) {
                         final bytes = await pickedFile.readAsBytes();
                         setDialogState(() => tempBase64 = base64Encode(bytes));
@@ -291,7 +322,16 @@ class _HomeScreenState extends State<HomeScreen>
         headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
           return <Widget>[
             SliverAppBar(
-              title: Text(_showHiddenOnly ? '取り消した減点を表示中' : 'ホーム'),
+              title: Text(_showHiddenOnly ? '取り消した減点' : 'ホーム'),
+              leading: IconButton(
+                icon: const Icon(Icons.meeting_room),
+                onPressed: () async {
+                  final prefs = await SharedPreferences.getInstance();
+                  await prefs.remove('isLoggedIn'); // ログイン保持設定をクリア
+                  if (mounted) Navigator.pop(context);
+                },
+                tooltip: 'ログアウト',
+              ),
               backgroundColor: _showHiddenOnly ? Colors.red[100] : const Color.fromARGB(255, 208, 249, 255),
               floating: true, // 上にスクロールした時にすぐ表示される
               pinned: true,   // タブバーを上部に固定する
@@ -299,10 +339,10 @@ class _HomeScreenState extends State<HomeScreen>
               forceElevated: innerBoxIsScrolled,
               actions: [
                 IconButton(
-                  icon: Icon(_showHiddenOnly ? Icons.visibility : Icons.visibility_off),
+                  icon: const Icon(Icons.history),
                   onPressed: () => setState(() => _showHiddenOnly = !_showHiddenOnly),
-                  tooltip: _showHiddenOnly ? '減点を表示' : '取り消した減点を表示',
-                  color: _showHiddenOnly ? const Color.fromARGB(255, 255, 163, 156) : null,
+                  tooltip: _showHiddenOnly ? '有効な減点を表示' : '取り消しした減点を表示',
+                  color: _showHiddenOnly ? const Color.fromARGB(255, 214, 116, 109) : Colors.blueGrey,
                 ),
                 IconButton(
                   icon: Icon(_isTableView ? Icons.list : Icons.table_chart),
@@ -313,12 +353,17 @@ class _HomeScreenState extends State<HomeScreen>
                   },
                   tooltip: _isTableView ? 'リスト表示' : '集計表表示',
                 ),
-                if (!_isTableView)
-                  IconButton(
-                    icon: Icon(_isLargeImageMode ? Icons.image : Icons.image_outlined),
-                    onPressed: () => setState(() => _isLargeImageMode = !_isLargeImageMode),
-                    tooltip: _isLargeImageMode ? '画像を小さく表示' : '画像を大きく表示',
+                IconButton(
+                  icon: Icon(
+                    _isTableView
+                        ? Icons.image_not_supported
+                        : (_isLargeImageMode ? Icons.image : Icons.image_outlined),
                   ),
+                  onPressed: _isTableView
+                      ? null
+                      : () => setState(() => _isLargeImageMode = !_isLargeImageMode),
+                  tooltip: _isTableView ? '集計表表示中は画像サイズを変更できません' : (_isLargeImageMode ? '画像を小さく表示' : '画像を大きく表示'),
+                ),
                 TextButton(
                   onPressed: () {
                     setState(() {
@@ -367,63 +412,73 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  static final RegExp _classRegex = RegExp(r'(\d+)組');
+
   Widget _buildTabContent({required bool isPostForm, required int tabIndex}) {
     // 表示する投稿のリストを事前に準備(ソート・フィルタリング)
-    List<Map<String, dynamic>> displayedPosts = [];
-    if (tabIndex == 0) {
-      displayedPosts = List<Map<String, dynamic>>.from(_posts);
-      // 検索フィルターが有効な場合、選択されたクラスでフィルタリング
-      if (_isSearchFilterActive) {
-        final String searchTarget = '${_searchFilterYear}年${_searchFilterClass}組';
-        displayedPosts = displayedPosts.where((post) => post['class'] == searchTarget).toList();
-      }
-    } else {
-      final String targetYear = '${tabIndex}年';
-      displayedPosts = _posts.where((post) => (post['class'] as String?)?.startsWith(targetYear) ?? false).toList();
-    }
-
-    // 非表示状態によるフィルタリング（計算前に行うことで集計から除外する）
-    displayedPosts = displayedPosts.where((post) => (post['isHidden'] ?? false) == _showHiddenOnly).toList();
-
-    // 減点合計およびクラスごとの集計を計算
+    final List<Map<String, dynamic>> displayedPosts = [];
     int totalDeductionPoints = 0;
     final Map<int, int> classTotals = {};
     if (tabIndex > 0) {
       for (int i = 1; i <= 9; i++) classTotals[i] = 0;
     }
 
-    for (var post in displayedPosts) {
-      final points = int.tryParse(post['deductionPoints']?.toString() ?? '0') ?? 0;
-      final String? classStr = post['class'] as String?;
+    // 1回のループで番号付け、フィルタリング、集計を同時に行う (高速化)
+    final String? searchTarget = _isSearchFilterActive && tabIndex == 0 
+        ? '${_searchFilterYear}年${_searchFilterClass}組' : null;
+    final String? targetYear = tabIndex > 0 ? '${tabIndex}年' : null;
+    final activeFilter = _gradeClassFilters[tabIndex];
+    final String? tabClassFilter = (tabIndex > 0 && activeFilter != null) 
+        ? '${tabIndex}年${activeFilter}組' : null;
+    
+    // 比較用ターゲットをクリーンアップ
+    final String? cleanSearchTarget = searchTarget?.trim();
+    final String? cleanTargetYear = targetYear?.trim();
 
-      if (!_isSearchFilterActive || tabIndex > 0) {
-        totalDeductionPoints += points;
-        if (tabIndex > 0) {
-          if (classStr != null) {
-            final match = RegExp(r'(\d+)組').firstMatch(classStr);
-            if (match != null) {
-              final classNum = int.tryParse(match.group(1)!);
-              if (classNum != null && classTotals.containsKey(classNum)) {
-                classTotals[classNum] = classTotals[classNum]! + points;
-              }
+    for (int i = 0; i < _posts.length; i++) {
+      final post = _posts[i];
+      
+      // 基本条件（取り消し済みかどうか）
+      if ((post['isHidden'] ?? false) != _showHiddenOnly) continue;
+
+      // タブごとの条件
+      final String postClass = (post['class']?.toString() ?? '').trim();
+      if (cleanSearchTarget != null && postClass != cleanSearchTarget) continue;
+      if (cleanTargetYear != null && !postClass.startsWith(cleanTargetYear)) continue;
+
+      final int postNo = _posts.length - i;
+
+      // 集計
+      final points = int.tryParse(post['deductionPoints']?.toString() ?? '0') ?? 0;
+      totalDeductionPoints += points;
+      if (tabIndex > 0) {
+        final String? classStr = post['class'] as String?;
+        if (classStr != null) {
+          final match = _classRegex.firstMatch(classStr);
+          if (match != null) {
+            final classNum = int.tryParse(match.group(1)!);
+            if (classNum != null && classTotals.containsKey(classNum)) {
+              classTotals[classNum] = classTotals[classNum]! + points;
             }
           }
         }
       }
+
+      // リスト表示用の絞り込み（集計には含めるがリストからは外す場合）
+      if (tabClassFilter != null && postClass != tabClassFilter) continue;
+
+      // 表示用データを作成（高速化のため参照を渡し、UI用の番号を直接付与）
+      post['_uiNumber'] = postNo;
+      displayedPosts.add(post);
     }
 
-    // 学年タブ専用のクラスフィルター適用（集計計算の後にリスト表示分だけを絞り込む）
-    final activeFilter = _gradeClassFilters[tabIndex];
-    if (tabIndex > 0 && activeFilter != null) {
-      final String targetClass = '${tabIndex}年${activeFilter}組';
-      displayedPosts = displayedPosts.where((post) => post['class'] == targetClass).toList();
-    }
-
-    if (_sortNewestFirst) {
-      displayedPosts.sort((a, b) => b['timestamp'].compareTo(a['timestamp']));
-    } else {
-      displayedPosts.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
-    }
+    // 並び替え (null安全な比較に修正)
+    displayedPosts.sort((a, b) {
+      final String timeA = a['timestamp']?.toString() ?? '';
+      final String timeB = b['timestamp']?.toString() ?? '';
+      if (_sortNewestFirst) return timeB.compareTo(timeA);
+      return timeA.compareTo(timeB);
+    });
 
     // CustomScrollView を使用することで、大量のリストアイテムを効率的に描画（Recycling）できるようにします
     return CustomScrollView(
@@ -434,161 +489,160 @@ class _HomeScreenState extends State<HomeScreen>
           padding: const EdgeInsets.all(16.0),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
-              if (_showHiddenOnly) ...[
-                Container(
-                  margin: const EdgeInsets.only(bottom: 16),
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  decoration: BoxDecoration(
-                    color: Colors.red[700],
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  alignment: Alignment.center,
-                  child: const Text('非表示投稿確認中', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
-                ),
-              ],
               if (isPostForm && !_showHiddenOnly) ...[
                 Card(
                   color: const Color.fromARGB(255, 249, 254, 255),
                   elevation: 4,
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
                   child: Padding(
-                    padding: const EdgeInsets.all(16.0),
+                padding: EdgeInsets.all(_isPostFormExpanded ? 16.0 : 8.0),
                     child: Column(
                       children: [
-                        const Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            Icon(Icons.edit_note, color: Colors.blueGrey),
-                            SizedBox(width: 8),
-                            Text(
-                              '減点登録',
-                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
-                            ),
-                          ],
-                        ),
-                        const Divider(height: 32),
-                        const Row(
-                          children: [
-                            Icon(Icons.school_outlined, size: 20, color: Colors.grey),
-                            SizedBox(width: 8),
-                            Text('対象クラス', style: TextStyle(fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            _buildPickerContainer(
-                              width: 70,
-                              picker: CupertinoPicker(
-                                scrollController: _yearController,
-                                itemExtent: 32.0,
-                                onSelectedItemChanged: (int index) => setState(() => _selectedValue1 = index + 1),
-                                children: List<Widget>.generate(3, (int index) => Center(child: Text('${index + 1}'))),
-                              ),
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 8.0),
-                              child: Text('年', style: TextStyle(fontSize: 16)),
-                            ),
-                            _buildPickerContainer(
-                              width: 70,
-                              picker: CupertinoPicker(
-                                scrollController: _classController,
-                                itemExtent: 32.0,
-                                onSelectedItemChanged: (int index) => setState(() => _selectedValue2 = (index + 1).toString()),
-                                children: List<Widget>.generate(9, (int index) => Center(child: Text('${index + 1}'))),
-                              ),
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 8.0),
-                              child: Text('組', style: TextStyle(fontSize: 16)),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                        const Row(
-                          children: [
-                            Icon(Icons.warning_amber_rounded, size: 20, color: Colors.grey),
-                            SizedBox(width: 8),
-                            Text('減点詳細', style: TextStyle(fontWeight: FontWeight.bold)),
-                          ],
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            const Text('減点数:', style: TextStyle(color: Colors.grey)),
-                            const SizedBox(width: 8),
-                            _buildPickerContainer(
-                              width: 80,
-                              picker: CupertinoPicker(
-                                scrollController: _deductionPointsPicker,
-                                itemExtent: 32.0,
-                                onSelectedItemChanged: (int index) => setState(() => _selectedDeductionPoints = index + 1),
-                                children: List<Widget>.generate(60, (int index) => Center(child: Text('${index + 1}'))),
-                              ),
-                            ),
-                            const SizedBox(width: 16),
-                            const Text('理由:', style: TextStyle(color: Colors.grey)),
-                            const SizedBox(width: 8),
-                            _buildPickerContainer(
-                              width: 120,
-                              picker: CupertinoPicker(
-                                scrollController: _deductionReasonPicker,
-                                itemExtent: 32.0,
-                                onSelectedItemChanged: (int index) => setState(() => _selectedDeductionReason = _deductionReasons[index]),
-                                children: List<Widget>.generate(
-                                  _deductionReasons.length,
-                                  (int index) => Center(child: Text(_deductionReasons[index])),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 20),
-                        TextFormField(
-                          controller: _remarksController,
-                          decoration: InputDecoration(
-                            labelText: '備考',
-                            hintText: '具体的な状況など（任意）',
-                            prefixIcon: const Icon(Icons.notes),
-                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                            filled: true,
-                            fillColor: Colors.grey[50],
+                    InkWell(
+                      onTap: () => setState(() => _isPostFormExpanded = !_isPostFormExpanded),
+                      borderRadius: BorderRadius.circular(16),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.edit_note, color: Colors.blueGrey),
+                          const SizedBox(width: 8),
+                          const Text(
+                            '減点登録',
+                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                           ),
-                          maxLines: 3,
-                          minLines: 1,
-                        ),
-                        const SizedBox(height: 16),
-                        if (_base64Image != null)
-                          Padding(
-                            padding: const EdgeInsets.only(bottom: 16.0),
-                            child: ClipRRect(
-                              borderRadius: BorderRadius.circular(8),
-                              child: Image.memory(
-                                base64Decode(_base64Image!),
-                                height: 100,
-                                fit: BoxFit.cover,
+                          const Spacer(),
+                          Icon(
+                            _isPostFormExpanded ? Icons.expand_less : Icons.expand_more,
+                            color: Colors.grey,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (_isPostFormExpanded) ...[
+                      const Divider(height: 32),
+                      const Row(
+                        children: [
+                          Icon(Icons.school_outlined, size: 20, color: Colors.grey),
+                          SizedBox(width: 8),
+                          Text('対象クラス', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _buildPickerContainer(
+                            width: 70,
+                            picker: CupertinoPicker(
+                              scrollController: _yearController,
+                              itemExtent: 32.0,
+                              onSelectedItemChanged: (int index) => setState(() => _selectedValue1 = index + 1),
+                              children: List<Widget>.generate(3, (int index) => Center(child: Text('${index + 1}'))),
+                            ),
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8.0),
+                            child: Text('年', style: TextStyle(fontSize: 16)),
+                          ),
+                          _buildPickerContainer(
+                            width: 70,
+                            picker: CupertinoPicker(
+                              scrollController: _classController,
+                              itemExtent: 32.0,
+                              onSelectedItemChanged: (int index) => setState(() => _selectedValue2 = (index + 1).toString()),
+                              children: List<Widget>.generate(9, (int index) => Center(child: Text('${index + 1}'))),
+                            ),
+                          ),
+                          const Padding(
+                            padding: EdgeInsets.symmetric(horizontal: 8.0),
+                            child: Text('組', style: TextStyle(fontSize: 16)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 24),
+                      const Row(
+                        children: [
+                          Icon(Icons.warning_amber_rounded, size: 20, color: Colors.grey),
+                          SizedBox(width: 8),
+                          Text('減点詳細', style: TextStyle(fontWeight: FontWeight.bold)),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Text('減点数:', style: TextStyle(color: Colors.grey)),
+                          const SizedBox(width: 8),
+                          _buildPickerContainer(
+                            width: 80,
+                            picker: CupertinoPicker(
+                              scrollController: _deductionPointsPicker,
+                              itemExtent: 32.0,
+                              onSelectedItemChanged: (int index) => setState(() => _selectedDeductionPoints = index + 1),
+                              children: List<Widget>.generate(60, (int index) => Center(child: Text('${index + 1}'))),
+                            ),
+                          ),
+                          const SizedBox(width: 16),
+                          const Text('理由:', style: TextStyle(color: Colors.grey)),
+                          const SizedBox(width: 8),
+                          _buildPickerContainer(
+                            width: 120,
+                            picker: CupertinoPicker(
+                              scrollController: _deductionReasonPicker,
+                              itemExtent: 32.0,
+                              onSelectedItemChanged: (int index) => setState(() => _selectedDeductionReason = _deductionReasons[index]),
+                              children: List<Widget>.generate(
+                                _deductionReasons.length,
+                                (int index) => Center(child: Text(_deductionReasons[index])),
                               ),
                             ),
                           ),
-                        Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            OutlinedButton.icon(
-                              onPressed: _pickImage,
-                              icon: const Icon(Icons.add_a_photo_outlined),
-                              label: const Text('写真添付'),
-                            ),
-                            IconButton(
-                              onPressed: _submitPost,
-                              icon: const Icon(Icons.send),
-                              color: const Color.fromARGB(255, 101, 167, 221),
-                              iconSize: 32,
-                              tooltip: '投稿する',
-                            ),
-                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      TextFormField(
+                        controller: _remarksController,
+                        decoration: InputDecoration(
+                          labelText: '備考',
+                          hintText: '具体的な状況など（任意）',
+                          prefixIcon: const Icon(Icons.notes),
+                          border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                          filled: true,
+                          fillColor: Colors.grey[50],
                         ),
+                        maxLines: 3,
+                        minLines: 1,
+                      ),
+                      const SizedBox(height: 16),
+                      if (_base64Image != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16.0),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: Image.memory(
+                              base64Decode(_base64Image!),
+                              height: 100,
+                              fit: BoxFit.cover,
+                            ),
+                          ),
+                        ),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          OutlinedButton.icon(
+                            onPressed: _pickImage,
+                            icon: const Icon(Icons.add_a_photo_outlined),
+                            label: const Text('写真添付'),
+                          ),
+                          IconButton(
+                            onPressed: _submitPost,
+                            icon: const Icon(Icons.send),
+                            color: const Color.fromARGB(255, 101, 167, 221),
+                            iconSize: 32,
+                            tooltip: '投稿する',
+                          ),
+                        ],
+                      ),
+                    ],
                       ],
                     ),
                   ),
@@ -602,16 +656,7 @@ class _HomeScreenState extends State<HomeScreen>
                 _buildGradeSummarySection(tabIndex, classTotals),
               ],
               if (!_isTableView) ...[
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12.0),
-                  child: Row(
-                    children: [
-                      Icon(Icons.history, color: Colors.blueGrey),
-                      SizedBox(width: 8),
-                      Text('投稿履歴', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
+                const _SectionHeader(icon: Icons.history_edu, title: '投稿履歴'),
               ],
             ]),
           ),
@@ -821,7 +866,7 @@ class _HomeScreenState extends State<HomeScreen>
   // 個別の投稿カードを生成。大量リストでも高速に動作するように分離。
   Widget _buildPostCard(Map<String, dynamic> item) {
     final String imagePath = item['imagePath'] ?? '';
-    final int postNumber = _posts.length - _posts.indexOf(item);
+    final int postNumber = item['_uiNumber'] ?? 0;
 
     if (_isLargeImageMode && imagePath.isNotEmpty) {
       return Card(
@@ -866,9 +911,9 @@ class _HomeScreenState extends State<HomeScreen>
                             const SizedBox(width: 8),
                             IconButton(
                               visualDensity: VisualDensity.compact,
-                              icon: Icon(item['isHidden'] == true ? Icons.visibility : Icons.visibility_off_outlined, size: 20, color: Colors.grey),
+                              icon: Icon(item['isHidden'] == true ? Icons.restore : Icons.undo, size: 20, color: Colors.grey),
                               onPressed: () => _toggleHidePost(item),
-                              tooltip: item['isHidden'] == true ? '表示する' : '非表示にする',
+                              tooltip: item['isHidden'] == true ? '減点を戻す' : '減点を取り消す',
                             ),
                             IconButton(
                               visualDensity: VisualDensity.compact,
@@ -935,8 +980,9 @@ class _HomeScreenState extends State<HomeScreen>
           mainAxisSize: MainAxisSize.min,
           children: [
             IconButton(
-              icon: Icon(item['isHidden'] == true ? Icons.visibility : Icons.visibility_off_outlined, color: Colors.grey),
+              icon: Icon(item['isHidden'] == true ? Icons.restore : Icons.undo, color: Colors.grey),
               onPressed: () => _toggleHidePost(item),
+              tooltip: item['isHidden'] == true ? '減点を戻す' : '減点を取り消す',
             ),
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.grey),
@@ -1040,7 +1086,7 @@ class _HomeScreenState extends State<HomeScreen>
         rows: List<DataRow>.generate(displayedPosts.length, (index) {
           final item = displayedPosts[index];
           // リストの通し番号と一致させる
-          final int postNumber = _posts.length - _posts.indexOf(item);
+          final int postNumber = item['_uiNumber'] ?? 0;
           final String classInfo = item['class']?.toString() ?? '';
           final String deductionPoints = item['deductionPoints']?.toString() ?? '';
           final String deductionReason = item['deductionReason']?.toString() ?? '';
@@ -1144,6 +1190,27 @@ class _HomeScreenState extends State<HomeScreen>
       cacheWidth: (w != null && w.isFinite) ? (w * 2).toInt() : null,
       cacheHeight: (h != null && h.isFinite) ? (h * 2).toInt() : null,
       errorBuilder: (c, e, s_stack) => Icon(Icons.broken_image, size: s ?? 40),
+    );
+  }
+}
+
+/// 共通のヘッダーウィジェットを分離して再利用（軽量化のため）
+class _SectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  const _SectionHeader({required this.icon, required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12.0),
+      child: Row(
+        children: [
+          Icon(icon, color: Colors.blueGrey),
+          const SizedBox(width: 8),
+          Text(title, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+        ],
+      ),
     );
   }
 }

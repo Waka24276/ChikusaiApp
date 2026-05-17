@@ -63,20 +63,40 @@ class PostDetailScreen extends StatelessWidget {
   }
 
   Widget _buildDetailImage(String imagePath) {
-    if (kIsWeb) {
-      try {
-        return Image.memory(base64Decode(imagePath), fit: BoxFit.cover);
-      } catch (_) {
-        return const Icon(Icons.broken_image, size: 100);
-      }
-    }
-    // アプリ版ではBase64とファイルパスの両方を試行
-    try {
-      final bytes = base64Decode(imagePath);
-      return Image.memory(bytes, fit: BoxFit.cover);
-    } catch (_) {
-      return Image.file(File(imagePath), fit: BoxFit.cover, 
-          errorBuilder: (c, e, s) => const Icon(Icons.broken_image, size: 100));
-    }
+    return RepaintBoundary(
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // 画面幅に合わせてキャッシュサイズを最適化（メモリ節約）
+          final double cacheSize = constraints.maxWidth * 2;
+          
+          if (kIsWeb) {
+            try {
+              return Image.memory(
+                base64Decode(imagePath),
+                fit: BoxFit.cover,
+                cacheWidth: cacheSize.toInt(),
+              );
+            } catch (_) {
+              return const Icon(Icons.broken_image, size: 100);
+            }
+          }
+          try {
+            return Image.memory(
+              base64Decode(imagePath),
+              fit: BoxFit.cover,
+              cacheWidth: cacheSize.toInt(),
+              errorBuilder: (c, e, s) => Image.file(
+                File(imagePath),
+                fit: BoxFit.cover,
+                cacheWidth: cacheSize.toInt(),
+                errorBuilder: (c, e, s2) => const Icon(Icons.broken_image, size: 100),
+              ),
+            );
+          } catch (_) {
+            return const Icon(Icons.broken_image, size: 100);
+          }
+        },
+      ),
+    );
   }
 }
