@@ -63,6 +63,7 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isSearchFilterActive = false; // Flag to indicate if a search filter is applied
   bool _isTableView = false; // 集計表表示かどうかの状態
   bool _isLargeImageMode = false; // 画像を大きく表示するかどうかの状態
+  bool _showHiddenOnly = false; // 非表示（アーカイブ）された投稿のみを表示するかどうか
   final Map<int, int> _gradeClassFilters = {}; // 学年ごとのクラスフィルター状態 (tabIndex: classNum)
 
   @override
@@ -175,6 +176,73 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  void _toggleHidePost(Map<String, dynamic> item) async {
+    if (item['isHidden'] == true) {
+      // すでに非表示の場合は、単に表示に戻す
+      setState(() {
+        item['isHidden'] = false;
+        item.remove('hiddenReasonImage'); // ストレージ節約のため写真を削除
+        _savePosts();
+      });
+      return;
+    }
+
+    // 非表示にする際の画像選択ダイアログ
+    String? tempBase64;
+    await showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('減点取り消し'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('弁明書の写真を添付してください'),
+                  const SizedBox(height: 16),
+                  if (tempBase64 != null)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Image.memory(base64Decode(tempBase64!), height: 150, fit: BoxFit.cover),
+                    ),
+                  OutlinedButton.icon(
+                    onPressed: () async {
+                      final XFile? pickedFile = await _picker.pickImage(source: ImageSource.gallery, imageQuality: 50);
+                      if (pickedFile != null) {
+                        final bytes = await pickedFile.readAsBytes();
+                        setDialogState(() => tempBase64 = base64Encode(bytes));
+                      }
+                    },
+                    icon: const Icon(Icons.add_a_photo_outlined),
+                    label: const Text('写真を選択'),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context),
+                  child: const Text('キャンセル'),
+                ),
+                ElevatedButton(
+                  onPressed: () {
+                    setState(() {
+                      item['isHidden'] = true;
+                      item['hiddenReasonImage'] = tempBase64;
+                      _savePosts();
+                    });
+                    Navigator.pop(context);
+                  },
+                  child: const Text('減点を取り消しする'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _submitPost() {
     // 備考に入力がある、画像が選択されている、または減点数が設定されている場合に投稿を許可
     if (_remarksController.text.isNotEmpty ||
@@ -189,6 +257,7 @@ class _HomeScreenState extends State<HomeScreen>
           'imagePath': _base64Image ?? '', // Base64文字列を保存
           'timestamp': DateTime.now().toIso8601String(), // Add timestamp
           'name': widget.username, // ログインユーザー名を保存
+          'isHidden': false, // 初期状態は表示
         });
         _savePosts(); // Save posts after adding a new one
       });
@@ -217,17 +286,24 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: _showHiddenOnly ? const Color.fromARGB(255, 255, 244, 246) : Colors.white,
       body: NestedScrollView(
         headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
           return <Widget>[
             SliverAppBar(
-              title: const Text('ホーム'),
-              backgroundColor: const Color.fromARGB(255, 208, 249, 255),
+              title: Text(_showHiddenOnly ? '取り消した減点を表示中' : 'ホーム'),
+              backgroundColor: _showHiddenOnly ? Colors.red[100] : const Color.fromARGB(255, 208, 249, 255),
               floating: true, // 上にスクロールした時にすぐ表示される
               pinned: true,   // タブバーを上部に固定する
               snap: true,     // スクロールを止めると自動的に開き切る
               forceElevated: innerBoxIsScrolled,
               actions: [
+                IconButton(
+                  icon: Icon(_showHiddenOnly ? Icons.visibility : Icons.visibility_off),
+                  onPressed: () => setState(() => _showHiddenOnly = !_showHiddenOnly),
+                  tooltip: _showHiddenOnly ? '減点を表示' : '取り消した減点を表示',
+                  color: _showHiddenOnly ? const Color.fromARGB(255, 255, 163, 156) : null,
+                ),
                 IconButton(
                   icon: Icon(_isTableView ? Icons.list : Icons.table_chart),
                   onPressed: () {
@@ -306,6 +382,9 @@ class _HomeScreenState extends State<HomeScreen>
       displayedPosts = _posts.where((post) => (post['class'] as String?)?.startsWith(targetYear) ?? false).toList();
     }
 
+    // 非表示状態によるフィルタリング（計算前に行うことで集計から除外する）
+    displayedPosts = displayedPosts.where((post) => (post['isHidden'] ?? false) == _showHiddenOnly).toList();
+
     // 減点合計およびクラスごとの集計を計算
     int totalDeductionPoints = 0;
     final Map<int, int> classTotals = {};
@@ -315,16 +394,18 @@ class _HomeScreenState extends State<HomeScreen>
 
     for (var post in displayedPosts) {
       final points = int.tryParse(post['deductionPoints']?.toString() ?? '0') ?? 0;
-      totalDeductionPoints += points;
+      final String? classStr = post['class'] as String?;
 
-      if (tabIndex > 0) {
-        final String? classStr = post['class'] as String?;
-        if (classStr != null) {
-          final match = RegExp(r'(\d+)組').firstMatch(classStr);
-          if (match != null) {
-            final classNum = int.tryParse(match.group(1)!);
-            if (classNum != null && classTotals.containsKey(classNum)) {
-              classTotals[classNum] = classTotals[classNum]! + points;
+      if (!_isSearchFilterActive || tabIndex > 0) {
+        totalDeductionPoints += points;
+        if (tabIndex > 0) {
+          if (classStr != null) {
+            final match = RegExp(r'(\d+)組').firstMatch(classStr);
+            if (match != null) {
+              final classNum = int.tryParse(match.group(1)!);
+              if (classNum != null && classTotals.containsKey(classNum)) {
+                classTotals[classNum] = classTotals[classNum]! + points;
+              }
             }
           }
         }
@@ -353,7 +434,19 @@ class _HomeScreenState extends State<HomeScreen>
           padding: const EdgeInsets.all(16.0),
           sliver: SliverList(
             delegate: SliverChildListDelegate([
-              if (isPostForm) ...[
+              if (_showHiddenOnly) ...[
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color: Colors.red[700],
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Text('非表示投稿確認中', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+                ),
+              ],
+              if (isPostForm && !_showHiddenOnly) ...[
                 Card(
                   color: const Color.fromARGB(255, 249, 254, 255),
                   elevation: 4,
@@ -773,6 +866,12 @@ class _HomeScreenState extends State<HomeScreen>
                             const SizedBox(width: 8),
                             IconButton(
                               visualDensity: VisualDensity.compact,
+                              icon: Icon(item['isHidden'] == true ? Icons.visibility : Icons.visibility_off_outlined, size: 20, color: Colors.grey),
+                              onPressed: () => _toggleHidePost(item),
+                              tooltip: item['isHidden'] == true ? '表示する' : '非表示にする',
+                            ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
                               icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
                               onPressed: () => _deletePost(item),
                             ),
@@ -832,9 +931,18 @@ class _HomeScreenState extends State<HomeScreen>
           padding: const EdgeInsets.only(top: 8.0),
           child: _buildPostContentSnippet(item),
         ),
-        trailing: IconButton(
-          icon: const Icon(Icons.delete_outline, color: Colors.grey),
-          onPressed: () => _deletePost(item),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: Icon(item['isHidden'] == true ? Icons.visibility : Icons.visibility_off_outlined, color: Colors.grey),
+              onPressed: () => _toggleHidePost(item),
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: Colors.grey),
+              onPressed: () => _deletePost(item),
+            ),
+          ],
         ),
         onTap: () {
           Navigator.push(
@@ -983,7 +1091,14 @@ class _HomeScreenState extends State<HomeScreen>
     final double? targetWidth = width ?? size ?? 100;
     final double? targetHeight = height ?? size ?? 100;
 
-    // Web版ではファイルアクセスができないため、Base64としての表示のみ試みる
+    return RepaintBoundary(
+      child: _buildRawImage(imagePath, targetWidth, targetHeight, size),
+    );
+  }
+
+  Widget _buildRawImage(String imagePath, double? targetWidth, double? targetHeight, double? size) {
+    const filterQuality = FilterQuality.low; // 軽量化のため画質設定を調整
+
     if (kIsWeb) {
       try {
         return Image.memory(
@@ -991,40 +1106,44 @@ class _HomeScreenState extends State<HomeScreen>
           width: targetWidth,
           height: targetHeight,
           fit: BoxFit.cover,
-          // 軽量化のポイント: メモリに展開するサイズを制限する
-          cacheWidth: targetWidth != null ? (targetWidth * 2).toInt() : null,
-          cacheHeight: targetHeight != null ? (targetHeight * 2).toInt() : null,
-          errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 50),
+          filterQuality: filterQuality,
+          gaplessPlayback: true,
+          cacheWidth: (targetWidth != null && targetWidth.isFinite) ? (targetWidth * 2).toInt() : null,
+          cacheHeight: (targetHeight != null && targetHeight.isFinite) ? (targetHeight * 2).toInt() : null,
+          errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 40),
         );
       } catch (_) {
         return Icon(Icons.broken_image, size: size);
       }
     }
 
-    // アプリ版(iOS/Android)の場合は両方に対応
     try {
-      // まずはBase64としてデコードを試みる
-      final bytes = base64Decode(imagePath);
       return Image.memory(
-        bytes,
+        base64Decode(imagePath),
         width: targetWidth,
         height: targetHeight,
         fit: BoxFit.cover,
-        cacheWidth: targetWidth != null ? (targetWidth * 2).toInt() : null,
-        cacheHeight: targetHeight != null ? (targetHeight * 2).toInt() : null,
-        errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 50),
+        filterQuality: filterQuality,
+        gaplessPlayback: true,
+        cacheWidth: (targetWidth != null && targetWidth.isFinite) ? (targetWidth * 2).toInt() : null,
+        cacheHeight: (targetHeight != null && targetHeight.isFinite) ? (targetHeight * 2).toInt() : null,
+        errorBuilder: (c, e, s) => _buildFileImage(imagePath, targetWidth, targetHeight, size),
       );
     } catch (_) {
-      // Base64でなければ、従来のファイルパスとして扱う
-      return Image.file(
-        File(imagePath),
-        width: targetWidth,
-        height: targetHeight,
-        fit: BoxFit.cover,
-        cacheWidth: targetWidth != null ? (targetWidth * 2).toInt() : null,
-        cacheHeight: targetHeight != null ? (targetHeight * 2).toInt() : null,
-        errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 50),
-      );
+      return _buildFileImage(imagePath, targetWidth, targetHeight, size);
     }
+  }
+
+  Widget _buildFileImage(String path, double? w, double? h, double? s) {
+    return Image.file(
+      File(path),
+      width: w,
+      height: h,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.low,
+      cacheWidth: (w != null && w.isFinite) ? (w * 2).toInt() : null,
+      cacheHeight: (h != null && h.isFinite) ? (h * 2).toInt() : null,
+      errorBuilder: (c, e, s_stack) => Icon(Icons.broken_image, size: s ?? 40),
+    );
   }
 }

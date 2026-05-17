@@ -23,6 +23,7 @@ class PostDetailScreen extends StatelessWidget {
         : '';
     final String name = post['name'] ?? '不明';
     final String imagePath = post['imagePath'] ?? '';
+    final String hiddenReasonImage = post['hiddenReasonImage'] ?? '';
 
     return Scaffold(
       appBar: AppBar(
@@ -47,6 +48,14 @@ class PostDetailScreen extends StatelessWidget {
             const SizedBox(height: 16),
             if (imagePath.isNotEmpty)
               _buildDetailImage(imagePath),
+            if (hiddenReasonImage.isNotEmpty) ...[
+              const SizedBox(height: 32),
+              const Divider(),
+              const SizedBox(height: 16),
+              const Text('非表示理由の写真:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red)),
+              const SizedBox(height: 8),
+              _buildDetailImage(hiddenReasonImage),
+            ],
           ],
         ),
       ),
