@@ -7,6 +7,17 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart'; // kIsWeb を使うため
 import 'post_detail_screen.dart'; // Import the new detail screen
 
+/// 重いJSONデコードを別スレッドで行うためのトップレベル関数
+List<Map<String, dynamic>> _parsePostsJson(String jsonString) {
+  final List<dynamic> decodedList = jsonDecode(jsonString);
+  return decodedList.map((item) => Map<String, dynamic>.from(item)).toList();
+}
+
+/// 重いJSONエンコードを別スレッドで行うためのトップレベル関数
+String _encodePostsJson(List<Map<String, dynamic>> posts) {
+  return jsonEncode(posts);
+}
+
 class HomeScreen extends StatefulWidget {
   final String username;
 
@@ -116,23 +127,23 @@ class _HomeScreenState extends State<HomeScreen>
     final prefs = await SharedPreferences.getInstance();
     final String? postsString = prefs.getString('posts_data');
     try {
-      if (postsString != null) {
+      if (postsString != null && postsString.isNotEmpty) {
+        // 大量データのデコードを別スレッド(compute)で行い、UIのフリーズを防ぐ
+        final List<Map<String, dynamic>> loadedPosts = await compute(_parsePostsJson, postsString);
         setState(() {
-          final List<dynamic> decodedList = jsonDecode(postsString);
           _posts.clear(); // 重複読み込み防止
-          _posts.addAll(
-            decodedList.map((item) => Map<String, dynamic>.from(item)).toList(),
-          );
+          _posts.addAll(loadedPosts);
         });
       }
-    } catch (e) {
-      debugPrint('データの読み込みに失敗しました: $e');
+    } catch (e, stack) {
+      debugPrint('データの読み込みに失敗しました: $e\n$stack');
     }
   }
 
   Future<void> _savePosts() async {
     final prefs = await SharedPreferences.getInstance();
-    final String encodedData = jsonEncode(_posts);
+    // エンコードも別スレッドで行う
+    final String encodedData = await compute(_encodePostsJson, _posts);
     await prefs.setString('posts_data', encodedData);
   }
 
@@ -333,167 +344,209 @@ class _HomeScreenState extends State<HomeScreen>
       displayedPosts.sort((a, b) => a['timestamp'].compareTo(b['timestamp']));
     }
 
-    return SingleChildScrollView(
-      // 画面全体をスクロール可能にする
-      physics: const AlwaysScrollableScrollPhysics(), // スクロールの連動を安定させる
-      padding: const EdgeInsets.all(16.0),
-      child: Column(
-        children: [
-          if (isPostForm) ...[
-            Card(
-              color: const Color.fromARGB(255, 249, 254, 255),
-              elevation: 4,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    const Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
+    // CustomScrollView を使用することで、大量のリストアイテムを効率的に描画（Recycling）できるようにします
+    return CustomScrollView(
+      key: PageStorageKey<String>('tab_$tabIndex'),
+      physics: const AlwaysScrollableScrollPhysics(),
+      slivers: [
+        SliverPadding(
+          padding: const EdgeInsets.all(16.0),
+          sliver: SliverList(
+            delegate: SliverChildListDelegate([
+              if (isPostForm) ...[
+                Card(
+                  color: const Color.fromARGB(255, 249, 254, 255),
+                  elevation: 4,
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
                       children: [
-                        Icon(Icons.edit_note, color: Colors.blueGrey),
-                        SizedBox(width: 8),
-                        Text(
-                          '減点登録',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                        const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.edit_note, color: Colors.blueGrey),
+                            SizedBox(width: 8),
+                            Text(
+                              '減点登録',
+                              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                    const Divider(height: 32),
-                    // 対象クラス選択
-                    const Row(
-                      children: [
-                        Icon(Icons.school_outlined, size: 20, color: Colors.grey),
-                        SizedBox(width: 8),
-                        Text('対象クラス', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        _buildPickerContainer(
-                          width: 70,
-                          picker: CupertinoPicker(
-                            scrollController: _yearController,
-                            itemExtent: 32.0,
-                            onSelectedItemChanged: (int index) => setState(() => _selectedValue1 = index + 1),
-                            children: List<Widget>.generate(3, (int index) => Center(child: Text('${index + 1}'))),
+                        const Divider(height: 32),
+                        const Row(
+                          children: [
+                            Icon(Icons.school_outlined, size: 20, color: Colors.grey),
+                            SizedBox(width: 8),
+                            Text('対象クラス', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            _buildPickerContainer(
+                              width: 70,
+                              picker: CupertinoPicker(
+                                scrollController: _yearController,
+                                itemExtent: 32.0,
+                                onSelectedItemChanged: (int index) => setState(() => _selectedValue1 = index + 1),
+                                children: List<Widget>.generate(3, (int index) => Center(child: Text('${index + 1}'))),
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 8.0),
+                              child: Text('年', style: TextStyle(fontSize: 16)),
+                            ),
+                            _buildPickerContainer(
+                              width: 70,
+                              picker: CupertinoPicker(
+                                scrollController: _classController,
+                                itemExtent: 32.0,
+                                onSelectedItemChanged: (int index) => setState(() => _selectedValue2 = (index + 1).toString()),
+                                children: List<Widget>.generate(9, (int index) => Center(child: Text('${index + 1}'))),
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 8.0),
+                              child: Text('組', style: TextStyle(fontSize: 16)),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        const Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, size: 20, color: Colors.grey),
+                            SizedBox(width: 8),
+                            Text('減点詳細', style: TextStyle(fontWeight: FontWeight.bold)),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            const Text('減点数:', style: TextStyle(color: Colors.grey)),
+                            const SizedBox(width: 8),
+                            _buildPickerContainer(
+                              width: 80,
+                              picker: CupertinoPicker(
+                                scrollController: _deductionPointsPicker,
+                                itemExtent: 32.0,
+                                onSelectedItemChanged: (int index) => setState(() => _selectedDeductionPoints = index + 1),
+                                children: List<Widget>.generate(60, (int index) => Center(child: Text('${index + 1}'))),
+                              ),
+                            ),
+                            const SizedBox(width: 16),
+                            const Text('理由:', style: TextStyle(color: Colors.grey)),
+                            const SizedBox(width: 8),
+                            _buildPickerContainer(
+                              width: 120,
+                              picker: CupertinoPicker(
+                                scrollController: _deductionReasonPicker,
+                                itemExtent: 32.0,
+                                onSelectedItemChanged: (int index) => setState(() => _selectedDeductionReason = _deductionReasons[index]),
+                                children: List<Widget>.generate(
+                                  _deductionReasons.length,
+                                  (int index) => Center(child: Text(_deductionReasons[index])),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                        TextFormField(
+                          controller: _remarksController,
+                          decoration: InputDecoration(
+                            labelText: '備考',
+                            hintText: '具体的な状況など（任意）',
+                            prefixIcon: const Icon(Icons.notes),
+                            border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                            filled: true,
+                            fillColor: Colors.grey[50],
                           ),
+                          maxLines: 3,
+                          minLines: 1,
                         ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8.0),
-                          child: Text('年', style: TextStyle(fontSize: 16)),
-                        ),
-                        _buildPickerContainer(
-                          width: 70,
-                          picker: CupertinoPicker(
-                            scrollController: _classController,
-                            itemExtent: 32.0,
-                            onSelectedItemChanged: (int index) => setState(() => _selectedValue2 = (index + 1).toString()),
-                            children: List<Widget>.generate(9, (int index) => Center(child: Text('${index + 1}'))),
-                          ),
-                        ),
-                        const Padding(
-                          padding: EdgeInsets.symmetric(horizontal: 8.0),
-                          child: Text('組', style: TextStyle(fontSize: 16)),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 24),
-                    // 減点詳細
-                    const Row(
-                      children: [
-                        Icon(Icons.warning_amber_rounded, size: 20, color: Colors.grey),
-                        SizedBox(width: 8),
-                        Text('減点詳細', style: TextStyle(fontWeight: FontWeight.bold)),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        const Text('減点数:', style: TextStyle(color: Colors.grey)),
-                        const SizedBox(width: 8),
-                        _buildPickerContainer(
-                          width: 80,
-                          picker: CupertinoPicker(
-                            scrollController: _deductionPointsPicker,
-                            itemExtent: 32.0,
-                            onSelectedItemChanged: (int index) => setState(() => _selectedDeductionPoints = index + 1),
-                            children: List<Widget>.generate(60, (int index) => Center(child: Text('${index + 1}'))),
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        const Text('理由:', style: TextStyle(color: Colors.grey)),
-                        const SizedBox(width: 8),
-                        _buildPickerContainer(
-                          width: 120,
-                          picker: CupertinoPicker(
-                            scrollController: _deductionReasonPicker,
-                            itemExtent: 32.0,
-                            onSelectedItemChanged: (int index) => setState(() => _selectedDeductionReason = _deductionReasons[index]),
-                            children: List<Widget>.generate(
-                              _deductionReasons.length,
-                              (int index) => Center(child: Text(_deductionReasons[index])),
+                        const SizedBox(height: 16),
+                        if (_base64Image != null)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 16.0),
+                            child: ClipRRect(
+                              borderRadius: BorderRadius.circular(8),
+                              child: Image.memory(
+                                base64Decode(_base64Image!),
+                                height: 100,
+                                fit: BoxFit.cover,
+                              ),
                             ),
                           ),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            OutlinedButton.icon(
+                              onPressed: _pickImage,
+                              icon: const Icon(Icons.add_a_photo_outlined),
+                              label: const Text('写真添付'),
+                            ),
+                            IconButton(
+                              onPressed: _submitPost,
+                              icon: const Icon(Icons.send),
+                              color: const Color.fromARGB(255, 101, 167, 221),
+                              iconSize: 32,
+                              tooltip: '投稿する',
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    const SizedBox(height: 20),
-                    // 備考入力
-                    TextFormField(
-                      controller: _remarksController,
-                      decoration: InputDecoration(
-                        labelText: '備考',
-                        hintText: '具体的な状況など（任意）',
-                        prefixIcon: const Icon(Icons.notes),
-                        border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                        filled: true,
-                        fillColor: Colors.grey[50],
-                      ),
-                      maxLines: 3,
-                      minLines: 1,
-                    ),
-                    const SizedBox(height: 16),
-                    if (_base64Image != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16.0),
-                        child: ClipRRect(
-                          borderRadius: BorderRadius.circular(8),
-                          child: Image.memory(
-                            base64Decode(_base64Image!),
-                            height: 100,
-                            fit: BoxFit.cover,
-                          ),
-                        ),
-                      ),
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        OutlinedButton.icon(
-                          onPressed: _pickImage,
-                          icon: const Icon(Icons.add_a_photo_outlined),
-                          label: const Text('写真添付'),
-                        ),
-                        IconButton(
-                          onPressed: _submitPost,
-                          icon: const Icon(Icons.send),
-                          color: const Color.fromARGB(255, 101, 167, 221),
-                          iconSize: 32,
-                          tooltip: '投稿する',
-                        ),
-                      ],
-                    ),
-                  ],
+                  ),
                 ),
+                const SizedBox(height: 24),
+              ],
+              if (tabIndex == 0) ...[
+                _buildSearchFilterSection(totalDeductionPoints),
+              ],
+              if (tabIndex > 0) ...[
+                _buildGradeSummarySection(tabIndex, classTotals),
+              ],
+              if (!_isTableView) ...[
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 12.0),
+                  child: Row(
+                    children: [
+                      Icon(Icons.history, color: Colors.blueGrey),
+                      SizedBox(width: 8),
+                      Text('投稿履歴', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                    ],
+                  ),
+                ),
+              ],
+            ]),
+          ),
+        ),
+        // リスト部分。SliverListを使うことで画面外のアイテムは描画されず、メモリが節約されます。
+        if (_isTableView)
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            sliver: SliverToBoxAdapter(child: _buildSummaryTable(displayedPosts)),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.symmetric(horizontal: 16.0),
+            sliver: SliverList(
+              delegate: SliverChildBuilderDelegate(
+                (context, index) => _buildPostCard(displayedPosts[index]),
+                childCount: displayedPosts.length,
               ),
             ),
-            const SizedBox(height: 24),
-          ],
-          // 検索フィルターUI (全体タブのみ)
-          if (tabIndex == 0) ...[
-            Card(
+          ),
+        const SliverToBoxAdapter(child: SizedBox(height: 32)),
+      ],
+    );
+  }
+
+  // 検索フィルター部分をメソッド化してコードを整理
+  Widget _buildSearchFilterSection(int totalDeductionPoints) {
+    return Card(
               color: const Color.fromARGB(255, 242, 249, 255), // 検索欄であることがわかりやすい背景色
               elevation: 0.5,
               shape: RoundedRectangleBorder(
@@ -602,10 +655,12 @@ class _HomeScreenState extends State<HomeScreen>
                   ],
                 ),
               ),
-            ),
-          ],
-          // 学年別タブ：クラスごとの合計を表示するサマリー
-          if (tabIndex > 0) ...[
+    );
+  }
+
+  Widget _buildGradeSummarySection(int tabIndex, Map<int, int> classTotals) {
+    return Column(
+      children: [
             GridView.builder(
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
@@ -666,150 +721,127 @@ class _HomeScreenState extends State<HomeScreen>
               },
             ),
             const SizedBox(height: 16),
-          ],
-          if (!_isTableView)
-            const Padding(
-              padding: EdgeInsets.only(bottom: 12.0),
-              child: Row(
-                children: [
-                  Icon(Icons.history, color: Colors.blueGrey),
-                  SizedBox(width: 8),
-                  Text('投稿履歴', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-                ],
-              ),
-            ), // ここは独立した if なのでカンマがあっても良いが、次の if との間にあることを確認
+      ],
+    );
+  }
 
-          // 一覧またはテーブルの表示
-          if (_isTableView)
-            _buildSummaryTable(displayedPosts) // ←ここにカンマがあると else がエラーになります
-          else
-            ListView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              itemCount: displayedPosts.length,
-              itemBuilder: (context, index) {
-                final item = displayedPosts[index];
-                final String imagePath = item['imagePath'] ?? '';
-                final int postNumber = _posts.length - _posts.indexOf(item);
+  // 個別の投稿カードを生成。大量リストでも高速に動作するように分離。
+  Widget _buildPostCard(Map<String, dynamic> item) {
+    final String imagePath = item['imagePath'] ?? '';
+    final int postNumber = _posts.length - _posts.indexOf(item);
 
-                // 画像を大きく表示するモードかつ画像がある場合
-                if (_isLargeImageMode && imagePath.isNotEmpty) {
-                  return Card(
-                    clipBehavior: Clip.antiAlias,
-                    color: Colors.white,
-                    margin: const EdgeInsets.only(bottom: 16),
-                    child: InkWell(
-                      onTap: () {
-                        Navigator.push(
-                          context,
-                          MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)),
-                        );
-                      },
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          _buildImageWidget(imagePath, width: double.infinity, height: 200),
-                          Padding(
-                            padding: const EdgeInsets.all(12.0),
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Row(
-                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                                  children: [
-                                    Text(
-                                      'No. $postNumber  ${item['class']}',
-                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
-                                    ),
-                                    Row(
-                                      children: [
-                                        Text(
-                                          item['timestamp'] != null
-                                              ? DateTime.parse(item['timestamp']!)
-                                                  .toLocal()
-                                                  .toString()
-                                                  .substring(5, 16)
-                                                  .replaceAll('-', '/')
-                                              : '',
-                                          style: const TextStyle(fontSize: 12, color: Colors.grey),
-                                        ),
-                                        const SizedBox(width: 8),
-                                        IconButton(
-                                          visualDensity: VisualDensity.compact,
-                                          icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
-                                          onPressed: () => _deletePost(item),
-                                        ),
-                                      ],
-                                    ),
-                                  ],
-                                ),
-                                _buildPostContentSnippet(item),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                }
-
-                return Card(
-                  color: Colors.white, // 履歴カードは白に設定（お好みで変更可能）
-                  margin: const EdgeInsets.only(bottom: 12),
-                  child: ListTile(
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    leading: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          '$postNumber',
-                          style: const TextStyle(color: Colors.grey, fontSize: 12),
-                        ),
-                        const SizedBox(width: 8),
-                        ClipRRect(
-                          borderRadius: BorderRadius.circular(4),
-                          child: _buildImageWidget(item['imagePath'], size: 50),
-                        ),
-                      ],
-                    ),
-                    title: Row(
+    if (_isLargeImageMode && imagePath.isNotEmpty) {
+      return Card(
+        clipBehavior: Clip.antiAlias,
+        color: Colors.white,
+        margin: const EdgeInsets.only(bottom: 16),
+        child: InkWell(
+          onTap: () {
+            Navigator.push(
+              context,
+              MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)),
+            );
+          },
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _buildImageWidget(imagePath, width: double.infinity, height: 200),
+              Padding(
+                padding: const EdgeInsets.all(12.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          '${item['class']}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                          'No. $postNumber  ${item['class']}',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
                         ),
-                        Text(
-                          item['timestamp'] != null
-                              ? DateTime.parse(item['timestamp']!)
-                                    .toLocal()
-                                    .toString()
-                                    .substring(5, 16)
-                                    .replaceAll('-', '/')
-                              : '',
-                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                        Row(
+                          children: [
+                            Text(
+                              item['timestamp'] != null
+                                  ? DateTime.parse(item['timestamp']!)
+                                      .toLocal()
+                                      .toString()
+                                      .substring(5, 16)
+                                      .replaceAll('-', '/')
+                                  : '',
+                              style: const TextStyle(fontSize: 12, color: Colors.grey),
+                            ),
+                            const SizedBox(width: 8),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
+                              onPressed: () => _deletePost(item),
+                            ),
+                          ],
                         ),
                       ],
                     ),
-                    subtitle: Padding(
-                      padding: const EdgeInsets.only(top: 8.0),
-                      child: _buildPostContentSnippet(item),
-                    ),
-                    trailing: IconButton(
-                      icon: const Icon(Icons.delete_outline, color: Colors.grey),
-                      onPressed: () => _deletePost(item),
-                    ),
-                    onTap: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)),
-                      );
-                    },
-                  ),
-                );
-              },
+                    _buildPostContentSnippet(item),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Card(
+      color: Colors.white,
+      margin: const EdgeInsets.only(bottom: 12),
+      child: ListTile(
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '$postNumber',
+              style: const TextStyle(color: Colors.grey, fontSize: 12),
             ),
-        ],
+            const SizedBox(width: 8),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(4),
+              child: _buildImageWidget(item['imagePath'], size: 50),
+            ),
+          ],
+        ),
+        title: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '${item['class']}',
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            ),
+            Text(
+              item['timestamp'] != null
+                  ? DateTime.parse(item['timestamp']!)
+                      .toLocal()
+                      .toString()
+                      .substring(5, 16)
+                      .replaceAll('-', '/')
+                  : '',
+              style: const TextStyle(fontSize: 12, color: Colors.grey),
+            ),
+          ],
+        ),
+        subtitle: Padding(
+          padding: const EdgeInsets.only(top: 8.0),
+          child: _buildPostContentSnippet(item),
+        ),
+        trailing: IconButton(
+          icon: const Icon(Icons.delete_outline, color: Colors.grey),
+          onPressed: () => _deletePost(item),
+        ),
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)),
+          );
+        },
       ),
     );
   }
@@ -872,12 +904,14 @@ class _HomeScreenState extends State<HomeScreen>
     return SingleChildScrollView(
       scrollDirection: Axis.horizontal,
       child: DataTable(
+        key: ValueKey('table_${displayedPosts.length}'), // 変更を検知させる
         columnSpacing: 16.0,
         dataRowMinHeight: 40.0,
         dataRowMaxHeight: 60.0,
         columns: const [
           DataColumn(
             label: Text('No.', style: TextStyle(fontWeight: FontWeight.bold)),
+            numeric: true,
           ),
           DataColumn(
             label: Text('クラス', style: TextStyle(fontWeight: FontWeight.bold)),
@@ -957,6 +991,9 @@ class _HomeScreenState extends State<HomeScreen>
           width: targetWidth,
           height: targetHeight,
           fit: BoxFit.cover,
+          // 軽量化のポイント: メモリに展開するサイズを制限する
+          cacheWidth: targetWidth != null ? (targetWidth * 2).toInt() : null,
+          cacheHeight: targetHeight != null ? (targetHeight * 2).toInt() : null,
           errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 50),
         );
       } catch (_) {
@@ -973,6 +1010,8 @@ class _HomeScreenState extends State<HomeScreen>
         width: targetWidth,
         height: targetHeight,
         fit: BoxFit.cover,
+        cacheWidth: targetWidth != null ? (targetWidth * 2).toInt() : null,
+        cacheHeight: targetHeight != null ? (targetHeight * 2).toInt() : null,
         errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 50),
       );
     } catch (_) {
@@ -982,6 +1021,8 @@ class _HomeScreenState extends State<HomeScreen>
         width: targetWidth,
         height: targetHeight,
         fit: BoxFit.cover,
+        cacheWidth: targetWidth != null ? (targetWidth * 2).toInt() : null,
+        cacheHeight: targetHeight != null ? (targetHeight * 2).toInt() : null,
         errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 50),
       );
     }
