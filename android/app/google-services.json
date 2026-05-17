@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "964296765272",
+    "project_id": "chikusaiapp",
+    "storage_bucket": "chikusaiapp.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:964296765272:android:68a90ce16195ad822eff2d",
+        "android_client_info": {
+          "package_name": "com.example.chikusai_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyABQpAOck-lMscxmK7KLqci6AhrBeezgpA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

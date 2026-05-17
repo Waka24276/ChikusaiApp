@@ -30,7 +30,7 @@ class _LoginScreenState extends State<LoginScreen> {
         // 画面のビルドが終わった直後にホーム画面へ遷移
         Future.microtask(() {
           if (mounted) {
-            Navigator.push(
+            Navigator.pushReplacement(
               context,
               MaterialPageRoute(builder: (context) => HomeScreen(username: savedUsername)),
             );
@@ -56,7 +56,7 @@ class _LoginScreenState extends State<LoginScreen> {
       }
       // ログイン成功時にホーム画面に遷移
       if (!mounted) return;
-      Navigator.push(
+      Navigator.pushReplacement(
         context,
         MaterialPageRoute(builder: (context) => HomeScreen(username: _usernameController.text)),
       );

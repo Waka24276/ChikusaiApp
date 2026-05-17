@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'dart:io';
 import 'dart:convert'; // For base64Decode
 import 'package:flutter/foundation.dart'; // kIsWeb を使うため
 
@@ -80,21 +79,12 @@ class PostDetailScreen extends StatelessWidget {
               return const Icon(Icons.broken_image, size: 100);
             }
           }
-          try {
-            return Image.memory(
-              base64Decode(imagePath),
-              fit: BoxFit.cover,
-              cacheWidth: cacheSize.toInt(),
-              errorBuilder: (c, e, s) => Image.file(
-                File(imagePath),
-                fit: BoxFit.cover,
-                cacheWidth: cacheSize.toInt(),
-                errorBuilder: (c, e, s2) => const Icon(Icons.broken_image, size: 100),
-              ),
-            );
-          } catch (_) {
-            return const Icon(Icons.broken_image, size: 100);
-          }
+          return Image.memory(
+            base64Decode(imagePath),
+            fit: BoxFit.cover,
+            cacheWidth: cacheSize.toInt(),
+            errorBuilder: (c, e, s) => const Icon(Icons.broken_image, size: 100),
+          );
         },
       ),
     );

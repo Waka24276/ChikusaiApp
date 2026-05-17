@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:image_picker/image_picker.dart';
-import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart'; // Firestoreのインポート
@@ -1131,54 +1130,26 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildRawImage(String imagePath, double? targetWidth, double? targetHeight, double? size) {
-    const filterQuality = FilterQuality.low; // 軽量化のため画質設定を調整
-
-    if (kIsWeb) {
-      try {
-        return Image.memory(
-          base64Decode(imagePath),
-          width: targetWidth,
-          height: targetHeight,
-          fit: BoxFit.cover,
-          filterQuality: filterQuality,
-          gaplessPlayback: true,
-          cacheWidth: (targetWidth != null && targetWidth.isFinite) ? (targetWidth * 2).toInt() : null,
-          cacheHeight: (targetHeight != null && targetHeight.isFinite) ? (targetHeight * 2).toInt() : null,
-          errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 40),
-        );
-      } catch (_) {
-        return Icon(Icons.broken_image, size: size);
-      }
-    }
-
     try {
+      final decodedBytes = base64Decode(imagePath);
       return Image.memory(
-        base64Decode(imagePath),
+        decodedBytes,
         width: targetWidth,
         height: targetHeight,
         fit: BoxFit.cover,
-        filterQuality: filterQuality,
+        filterQuality: FilterQuality.low,
         gaplessPlayback: true,
-        cacheWidth: (targetWidth != null && targetWidth.isFinite) ? (targetWidth * 2).toInt() : null,
-        cacheHeight: (targetHeight != null && targetHeight.isFinite) ? (targetHeight * 2).toInt() : null,
-        errorBuilder: (c, e, s) => _buildFileImage(imagePath, targetWidth, targetHeight, size),
+        // キャッシュサイズを整数で指定し、負の値を防ぐ
+        cacheWidth: (targetWidth != null && targetWidth > 0 && targetWidth.isFinite) 
+            ? (targetWidth * 2).toInt() : null,
+        cacheHeight: (targetHeight != null && targetHeight > 0 && targetHeight.isFinite) 
+            ? (targetHeight * 2).toInt() : null,
+        errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 40),
       );
-    } catch (_) {
-      return _buildFileImage(imagePath, targetWidth, targetHeight, size);
+    } catch (e) {
+      // Base64が不正な場合などのエラーハンドリング
+      return Icon(Icons.broken_image, size: size ?? 40);
     }
-  }
-
-  Widget _buildFileImage(String path, double? w, double? h, double? s) {
-    return Image.file(
-      File(path),
-      width: w,
-      height: h,
-      fit: BoxFit.cover,
-      filterQuality: FilterQuality.low,
-      cacheWidth: (w != null && w.isFinite) ? (w * 2).toInt() : null,
-      cacheHeight: (h != null && h.isFinite) ? (h * 2).toInt() : null,
-      errorBuilder: (c, e, s_stack) => Icon(Icons.broken_image, size: s ?? 40),
-    );
   }
 }
 
