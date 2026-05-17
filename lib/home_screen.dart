@@ -4,19 +4,10 @@ import 'package:image_picker/image_picker.dart';
 import 'dart:io';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
+import 'package:cloud_firestore/cloud_firestore.dart'; // Firestoreのインポート
+import 'dart:async'; // StreamSubscriptionのため
 import 'package:flutter/foundation.dart'; // kIsWeb を使うため
 import 'post_detail_screen.dart'; // Import the new detail screen
-
-/// 重いJSONデコードを別スレッドで行うためのトップレベル関数
-List<Map<String, dynamic>> _parsePostsJson(String jsonString) {
-  final List<dynamic> decodedList = jsonDecode(jsonString);
-  return decodedList.map((item) => Map<String, dynamic>.from(item)).toList();
-}
-
-/// 重いJSONエンコードを別スレッドで行うためのトップレベル関数
-String _encodePostsJson(List<Map<String, dynamic>> posts) {
-  return jsonEncode(posts);
-}
 
 class HomeScreen extends StatefulWidget {
   final String username;
@@ -30,8 +21,8 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   final _remarksController = TextEditingController();
-  final List<Map<String, dynamic>> _posts =
-      []; // Changed type to dynamic for timestamp
+  List<Map<String, dynamic>> _posts = []; // Firestoreから取得したデータを保持
+  StreamSubscription? _postsSubscription; // リアルタイム更新の購読
   int _selectedValue1 = 1;
   String _selectedValue2 = '1';
   String? _base64Image; // Web対応のためBase64形式で保持
@@ -71,7 +62,7 @@ class _HomeScreenState extends State<HomeScreen>
   void initState() {
     super.initState();
     _initializeControllers();
-    _loadPosts();
+    _listenToPosts(); // 起動時にFirestoreの監視を開始
   }
 
   @override
@@ -84,6 +75,7 @@ class _HomeScreenState extends State<HomeScreen>
     _deductionReasonPicker.dispose();
     _searchYearPicker.dispose();
     _searchClassPicker.dispose();
+    _postsSubscription?.cancel(); // 画面を閉じるときに購読を解除
     super.dispose();
   }
 
@@ -128,28 +120,21 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  Future<void> _loadPosts() async {
-    final prefs = await SharedPreferences.getInstance();
-    final String? postsString = prefs.getString('posts_data');
-    try {
-      if (postsString != null && postsString.isNotEmpty) {
-        // 大量データのデコードを別スレッド(compute)で行い、UIのフリーズを防ぐ
-        final List<Map<String, dynamic>> loadedPosts = await compute(_parsePostsJson, postsString);
-        setState(() {
-          _posts.clear(); // 重複読み込み防止
-          _posts.addAll(loadedPosts);
-        });
-      }
-    } catch (e, stack) {
-      debugPrint('データの読み込みに失敗しました: $e\n$stack');
-    }
-  }
-
-  Future<void> _savePosts() async {
-    final prefs = await SharedPreferences.getInstance();
-    // エンコードも別スレッドで行う
-    final String encodedData = await compute(_encodePostsJson, _posts);
-    await prefs.setString('posts_data', encodedData);
+  // Firestoreのデータをリアルタイムで監視する
+  void _listenToPosts() {
+    _postsSubscription = FirebaseFirestore.instance
+        .collection('posts')
+        .orderBy('timestamp', descending: true) // 新しい順に取得
+        .snapshots()
+        .listen((snapshot) {
+      setState(() {
+        _posts = snapshot.docs.map((doc) {
+          final data = doc.data();
+          data['id'] = doc.id; // ドキュメントIDを保持（削除や更新に必要）
+          return data;
+        }).toList();
+      });
+    }, onError: (e) => debugPrint('Firestoreエラー: $e'));
   }
 
   void _deletePost(Map<String, dynamic> item) {
@@ -165,12 +150,12 @@ class _HomeScreenState extends State<HomeScreen>
               child: const Text('キャンセル'),
             ),
             TextButton(
-              onPressed: () {
-                setState(() {
-                  _posts.remove(item);
-                  _savePosts();
-                });
-                Navigator.pop(context);
+              onPressed: () async {
+                // Firestoreから削除
+                await FirebaseFirestore.instance.collection('posts').doc(item['id']).delete();
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
               },
               child: const Text('削除', style: TextStyle(color: Colors.red)),
             ),
@@ -205,11 +190,12 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (confirm != true) return;
 
-      setState(() {
-        item['isHidden'] = false;
-        item.remove('hiddenReasonImage'); // ストレージ節約のため写真を削除
-        _savePosts();
+      // Firestoreのデータを更新
+      await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
+        'isHidden': false,
+        'hiddenReasonImage': FieldValue.delete(), // フィールドを削除
       });
+      
       return;
     }
 
@@ -256,11 +242,11 @@ class _HomeScreenState extends State<HomeScreen>
                   child: const Text('キャンセル'),
                 ),
                 ElevatedButton(
-                  onPressed: () {
-                    setState(() {
-                      item['isHidden'] = true;
-                      item['hiddenReasonImage'] = tempBase64;
-                      _savePosts();
+                  onPressed: () async {
+                    // Firestoreのデータを更新
+                    await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
+                      'isHidden': true,
+                      'hiddenReasonImage': tempBase64,
                     });
                     Navigator.pop(context);
                   },
@@ -279,26 +265,28 @@ class _HomeScreenState extends State<HomeScreen>
     if (_remarksController.text.isNotEmpty ||
         _base64Image != null ||
         _selectedDeductionPoints > 0) {
-      setState(() {
-        _posts.insert(0, {
-          'class': '$_selectedValue1年$_selectedValue2組',
-          'deductionPoints': _selectedDeductionPoints.toString(),
-          'deductionReason': _selectedDeductionReason,
-          'remarks': _remarksController.text,
-          'imagePath': _base64Image ?? '', // Base64文字列を保存
-          'timestamp': DateTime.now().toIso8601String(), // Add timestamp
-          'name': widget.username, // ログインユーザー名を保存
-          'isHidden': false, // 初期状態は表示
-        });
-        _savePosts(); // Save posts after adding a new one
+      
+      // Firestoreに新規追加
+      FirebaseFirestore.instance.collection('posts').add({
+        'class': '$_selectedValue1年$_selectedValue2組',
+        'deductionPoints': _selectedDeductionPoints.toString(),
+        'deductionReason': _selectedDeductionReason,
+        'remarks': _remarksController.text,
+        'imagePath': _base64Image ?? '',
+        'timestamp': DateTime.now().toIso8601String(),
+        'name': widget.username,
+        'isHidden': false,
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            '投稿しました: $_selectedDeductionPoints点, 理由: $_selectedDeductionReason',
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '投稿しました: $_selectedDeductionPoints点, 理由: $_selectedDeductionReason',
+            ),
           ),
-        ),
-      );
+        );
+      }
 
       // フォームをリセット
       _selectedValue1 = 1;
@@ -643,10 +631,10 @@ class _HomeScreenState extends State<HomeScreen>
                         ],
                       ),
                     ],
-                      ],
-                    ),
-                  ),
+                  ],
                 ),
+              ),
+            ),
                 const SizedBox(height: 24),
               ],
               if (tabIndex == 0) ...[
