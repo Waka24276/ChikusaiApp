@@ -204,55 +204,62 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('ホーム'),
-        backgroundColor: const Color.fromARGB(255, 208, 249, 255), 
-        actions: [
-          // Added actions to AppBar
-          IconButton(
-            icon: Icon(_isTableView ? Icons.list : Icons.table_chart),
-            onPressed: () {
-              setState(() {
-                _isTableView = !_isTableView;
-              });
-            },
-            tooltip: _isTableView ? 'リスト表示' : '集計表表示',
-          ),
-          TextButton(
-            onPressed: () {
-              setState(() {
-                _sortNewestFirst = !_sortNewestFirst;
-                // _postsリスト自体はソートせず、表示時にソートされたコピーを使用する
-                // これにより、_buildSummaryTableでのナンバリングが安定する
-              });
-            },
-            child: Text(
-              _sortNewestFirst ? '古い順' : '新しい順',
-              style: const TextStyle(fontWeight: FontWeight.bold),
+      body: NestedScrollView(
+        headerSliverBuilder: (BuildContext context, bool innerBoxIsScrolled) {
+          return <Widget>[
+            SliverAppBar(
+              title: const Text('ホーム'),
+              backgroundColor: const Color.fromARGB(255, 208, 249, 255),
+              floating: true, // 上にスクロールした時にすぐ表示される
+              pinned: true,   // タブバーを上部に固定する
+              snap: true,     // スクロールを止めると自動的に開き切る
+              forceElevated: innerBoxIsScrolled,
+              actions: [
+                IconButton(
+                  icon: Icon(_isTableView ? Icons.list : Icons.table_chart),
+                  onPressed: () {
+                    setState(() {
+                      _isTableView = !_isTableView;
+                    });
+                  },
+                  tooltip: _isTableView ? 'リスト表示' : '集計表表示',
+                ),
+                TextButton(
+                  onPressed: () {
+                    setState(() {
+                      _sortNewestFirst = !_sortNewestFirst;
+                    });
+                  },
+                  child: Text(
+                    _sortNewestFirst ? '古い順' : '新しい順',
+                    style: const TextStyle(fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ],
+              bottom: TabBar(
+                controller: _tabController,
+                labelColor: const Color.fromARGB(255, 20, 112, 187),
+                unselectedLabelColor: Colors.black54,
+                indicatorColor: const Color.fromARGB(255, 20, 112, 187),
+                tabs: const [
+                  Tab(text: '全体'),
+                  Tab(text: '1年'),
+                  Tab(text: '2年'),
+                  Tab(text: '3年'),
+                ],
+              ),
             ),
-          ),
-        ],
-        bottom: TabBar(
+          ];
+        },
+        body: TabBarView(
           controller: _tabController,
-          labelColor: const Color.fromARGB(255, 20, 112, 187),
-          unselectedLabelColor: Colors.black54,
-          indicatorColor: const Color.fromARGB(255, 20, 112, 187),
-          tabs: const [
-            Tab(text: '全体'),
-            Tab(text: '1年'),
-            Tab(text: '2年'),
-            Tab(text: '3年'),
+          children: [
+            _buildTabContent(isPostForm: true, tabIndex: 0),
+            _buildTabContent(isPostForm: false, tabIndex: 1),
+            _buildTabContent(isPostForm: false, tabIndex: 2),
+            _buildTabContent(isPostForm: false, tabIndex: 3),
           ],
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _buildTabContent(isPostForm: true, tabIndex: 0),
-          _buildTabContent(isPostForm: false, tabIndex: 1),
-          _buildTabContent(isPostForm: false, tabIndex: 2),
-          _buildTabContent(isPostForm: false, tabIndex: 3),
-        ],
       ),
     );
   }
@@ -272,10 +279,29 @@ class _HomeScreenState extends State<HomeScreen>
       displayedPosts = _posts.where((post) => (post['class'] as String?)?.startsWith(targetYear) ?? false).toList();
     }
 
-    // 検索フィルターが有効な場合の減点合計を計算
+    // 減点合計およびクラスごとの集計を計算
     int totalDeductionPoints = 0;
+    final Map<int, int> classTotals = {};
+    if (tabIndex > 0) {
+      for (int i = 1; i <= 9; i++) classTotals[i] = 0;
+    }
+
     for (var post in displayedPosts) {
-      totalDeductionPoints += int.tryParse(post['deductionPoints']?.toString() ?? '0') ?? 0;
+      final points = int.tryParse(post['deductionPoints']?.toString() ?? '0') ?? 0;
+      totalDeductionPoints += points;
+
+      if (tabIndex > 0) {
+        final String? classStr = post['class'] as String?;
+        if (classStr != null) {
+          final match = RegExp(r'(\d+)組').firstMatch(classStr);
+          if (match != null) {
+            final classNum = int.tryParse(match.group(1)!);
+            if (classNum != null && classTotals.containsKey(classNum)) {
+              classTotals[classNum] = classTotals[classNum]! + points;
+            }
+          }
+        }
+      }
     }
 
     if (_sortNewestFirst) {
@@ -286,6 +312,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     return SingleChildScrollView(
       // 画面全体をスクロール可能にする
+      physics: const AlwaysScrollableScrollPhysics(), // スクロールの連動を安定させる
       padding: const EdgeInsets.all(16.0),
       child: Column(
         children: [
@@ -554,6 +581,47 @@ class _HomeScreenState extends State<HomeScreen>
               ),
             ),
           ],
+          // 学年別タブ：クラスごとの合計を表示するサマリー
+          if (tabIndex > 0) ...[
+            SizedBox(
+              height: 65,
+              child: ListView.builder(
+                scrollDirection: Axis.horizontal,
+                itemCount: 9,
+                itemBuilder: (context, index) {
+                  final classNum = index + 1;
+                  final total = classTotals[classNum] ?? 0;
+                  return Card(
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      side: BorderSide(color: Colors.blueGrey.withOpacity(0.1)),
+                    ),
+                    color: total > 0 ? Colors.red[50] : Colors.white,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Text('$classNum組',
+                              style: TextStyle(fontSize: 11, color: Colors.blueGrey[700])),
+                          Text(
+                            '$total点',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: total > 0 ? Colors.red[700] : Colors.blueGrey,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
           if (!_isTableView)
             const Padding(
               padding: EdgeInsets.only(bottom: 12.0),
@@ -710,9 +778,6 @@ class _HomeScreenState extends State<HomeScreen>
             label: Text('備考', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
           DataColumn(
-            label: Text('日時', style: TextStyle(fontWeight: FontWeight.bold)),
-          ),
-          DataColumn(
             label: Text('名前', style: TextStyle(fontWeight: FontWeight.bold)),
           ),
         ],
@@ -724,13 +789,6 @@ class _HomeScreenState extends State<HomeScreen>
           final String deductionPoints = item['deductionPoints']?.toString() ?? '';
           final String deductionReason = item['deductionReason']?.toString() ?? '';
           final String remarks = item['remarks']?.toString() ?? '';
-          final String timestamp = item['timestamp'] != null
-              ? DateTime.parse(item['timestamp'].toString())
-                    .toLocal()
-                    .toString()
-                    .substring(5, 16) // 月-日 時:分 の形式
-                    .replaceAll('-', '/')
-              : '';
           final String name = item['name']?.toString() ?? '不明'; // 名前が保存されていない場合は「不明」
 
           return DataRow(
@@ -760,7 +818,6 @@ class _HomeScreenState extends State<HomeScreen>
                   ),
                 ),
               ),
-              DataCell(Text(timestamp)),
               DataCell(Text(name)),
             ],
           );
