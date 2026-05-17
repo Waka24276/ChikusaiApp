@@ -51,6 +51,8 @@ class _HomeScreenState extends State<HomeScreen>
   String _searchFilterClass = '1'; // Default selected class for search
   bool _isSearchFilterActive = false; // Flag to indicate if a search filter is applied
   bool _isTableView = false; // 集計表表示かどうかの状態
+  bool _isLargeImageMode = false; // 画像を大きく表示するかどうかの状態
+  final Map<int, int> _gradeClassFilters = {}; // 学年ごとのクラスフィルター状態 (tabIndex: classNum)
 
   @override
   void initState() {
@@ -224,6 +226,12 @@ class _HomeScreenState extends State<HomeScreen>
                   },
                   tooltip: _isTableView ? 'リスト表示' : '集計表表示',
                 ),
+                if (!_isTableView)
+                  IconButton(
+                    icon: Icon(_isLargeImageMode ? Icons.image : Icons.image_outlined),
+                    onPressed: () => setState(() => _isLargeImageMode = !_isLargeImageMode),
+                    tooltip: _isLargeImageMode ? '画像を小さく表示' : '画像を大きく表示',
+                  ),
                 TextButton(
                   onPressed: () {
                     setState(() {
@@ -238,6 +246,14 @@ class _HomeScreenState extends State<HomeScreen>
               ],
               bottom: TabBar(
                 controller: _tabController,
+                onTap: (index) {
+                  // すでに選択されているタブをもう一度押した時にフィルターをリセット
+                  if (index == _tabController.index) {
+                    setState(() {
+                      _gradeClassFilters.remove(index);
+                    });
+                  }
+                },
                 labelColor: const Color.fromARGB(255, 20, 112, 187),
                 unselectedLabelColor: Colors.black54,
                 indicatorColor: const Color.fromARGB(255, 20, 112, 187),
@@ -302,6 +318,13 @@ class _HomeScreenState extends State<HomeScreen>
           }
         }
       }
+    }
+
+    // 学年タブ専用のクラスフィルター適用（集計計算の後にリスト表示分だけを絞り込む）
+    final activeFilter = _gradeClassFilters[tabIndex];
+    if (tabIndex > 0 && activeFilter != null) {
+      final String targetClass = '${tabIndex}年${activeFilter}組';
+      displayedPosts = displayedPosts.where((post) => post['class'] == targetClass).toList();
     }
 
     if (_sortNewestFirst) {
@@ -583,42 +606,64 @@ class _HomeScreenState extends State<HomeScreen>
           ],
           // 学年別タブ：クラスごとの合計を表示するサマリー
           if (tabIndex > 0) ...[
-            SizedBox(
-              height: 65,
-              child: ListView.builder(
-                scrollDirection: Axis.horizontal,
-                itemCount: 9,
-                itemBuilder: (context, index) {
-                  final classNum = index + 1;
-                  final total = classTotals[classNum] ?? 0;
-                  return Card(
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                      side: BorderSide(color: Colors.blueGrey.withOpacity(0.1)),
-                    ),
-                    color: total > 0 ? Colors.red[50] : Colors.white,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text('$classNum組',
-                              style: TextStyle(fontSize: 11, color: Colors.blueGrey[700])),
-                          Text(
-                            '$total点',
-                            style: TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.bold,
-                              color: total > 0 ? Colors.red[700] : Colors.blueGrey,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+            GridView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: 3,
+                mainAxisSpacing: 8,
+                crossAxisSpacing: 8,
+                childAspectRatio: 2.5,
               ),
+              itemCount: 9,
+              itemBuilder: (context, index) {
+                final classNum = index + 1;
+                final total = classTotals[classNum] ?? 0;
+                final isSelected = _gradeClassFilters[tabIndex] == classNum;
+
+                return GestureDetector(
+                  onTap: () {
+                    setState(() {
+                      if (isSelected) {
+                        _gradeClassFilters.remove(tabIndex);
+                      } else {
+                        _gradeClassFilters[tabIndex] = classNum;
+                      }
+                    });
+                  },
+                  child: Container(
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(
+                        color: isSelected ? Colors.blue : Colors.blueGrey.withOpacity(0.1),
+                        width: isSelected ? 2 : 1,
+                      ),
+                      color: isSelected
+                          ? Colors.blue[50]
+                          : (total > 0 ? Colors.red[50] : Colors.white),
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text('$classNum組',
+                            style: TextStyle(
+                              fontSize: 11,
+                              color: isSelected ? Colors.blue[700] : Colors.blueGrey[700],
+                              fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                            )),
+                        Text(
+                          '$total',
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.bold,
+                            color: isSelected ? Colors.blue[800] : (total > 0 ? Colors.red[700] : Colors.blueGrey),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
             ),
             const SizedBox(height: 16),
           ],
@@ -644,6 +689,70 @@ class _HomeScreenState extends State<HomeScreen>
               itemCount: displayedPosts.length,
               itemBuilder: (context, index) {
                 final item = displayedPosts[index];
+                final String imagePath = item['imagePath'] ?? '';
+                final int postNumber = _posts.length - _posts.indexOf(item);
+
+                // 画像を大きく表示するモードかつ画像がある場合
+                if (_isLargeImageMode && imagePath.isNotEmpty) {
+                  return Card(
+                    clipBehavior: Clip.antiAlias,
+                    color: Colors.white,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    child: InkWell(
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)),
+                        );
+                      },
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _buildImageWidget(imagePath, width: double.infinity, height: 200),
+                          Padding(
+                            padding: const EdgeInsets.all(12.0),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Text(
+                                      'No. $postNumber  ${item['class']}',
+                                      style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                                    ),
+                                    Row(
+                                      children: [
+                                        Text(
+                                          item['timestamp'] != null
+                                              ? DateTime.parse(item['timestamp']!)
+                                                  .toLocal()
+                                                  .toString()
+                                                  .substring(5, 16)
+                                                  .replaceAll('-', '/')
+                                              : '',
+                                          style: const TextStyle(fontSize: 12, color: Colors.grey),
+                                        ),
+                                        const SizedBox(width: 8),
+                                        IconButton(
+                                          visualDensity: VisualDensity.compact,
+                                          icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
+                                          onPressed: () => _deletePost(item),
+                                        ),
+                                      ],
+                                    ),
+                                  ],
+                                ),
+                                _buildPostContentSnippet(item),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  );
+                }
+
                 return Card(
                   color: Colors.white, // 履歴カードは白に設定（お好みで変更可能）
                   margin: const EdgeInsets.only(bottom: 12),
@@ -653,7 +762,7 @@ class _HomeScreenState extends State<HomeScreen>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Text(
-                          '${_posts.length - _posts.indexOf(item)}',
+                          '$postNumber',
                           style: const TextStyle(color: Colors.grey, fontSize: 12),
                         ),
                         const SizedBox(width: 8),
@@ -684,41 +793,7 @@ class _HomeScreenState extends State<HomeScreen>
                     ),
                     subtitle: Padding(
                       padding: const EdgeInsets.only(top: 8.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: Colors.red[50],
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Text(
-                                  '${item['deductionPoints']}点',
-                                  style: TextStyle(color: Colors.red[700], fontWeight: FontWeight.bold, fontSize: 13),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Text(
-                                '理由: ${item['deductionReason']}',
-                                style: const TextStyle(fontSize: 13),
-                              ),
-                            ],
-                          ),
-                          if (item['remarks'] != null && item['remarks'].toString().isNotEmpty)
-                            Padding(
-                              padding: const EdgeInsets.only(top: 4.0),
-                              child: Text(
-                                '備考: ${item['remarks']}',
-                                style: const TextStyle(fontSize: 13, color: Colors.black87),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                        ],
-                      ),
+                      child: _buildPostContentSnippet(item),
                     ),
                     trailing: IconButton(
                       icon: const Icon(Icons.delete_outline, color: Colors.grey),
@@ -736,6 +811,45 @@ class _HomeScreenState extends State<HomeScreen>
             ),
         ],
       ),
+    );
+  }
+
+  // 投稿内容（減点数、理由、備考）のUIパーツ
+  Widget _buildPostContentSnippet(Map<String, dynamic> item) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+              decoration: BoxDecoration(
+                color: Colors.red[50],
+                borderRadius: BorderRadius.circular(4),
+              ),
+              child: Text(
+                '${item['deductionPoints']}点',
+                style: TextStyle(color: Colors.red[700], fontWeight: FontWeight.bold, fontSize: 13),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              '理由: ${item['deductionReason']}',
+              style: const TextStyle(fontSize: 13),
+            ),
+          ],
+        ),
+        if (item['remarks'] != null && item['remarks'].toString().isNotEmpty)
+          Padding(
+            padding: const EdgeInsets.only(top: 4.0),
+            child: Text(
+              '備考: ${item['remarks']}',
+              style: const TextStyle(fontSize: 13, color: Colors.black87),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+      ],
     );
   }
 
@@ -827,20 +941,23 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   // 画像パスが Base64 か ファイルパス かを判定して表示するウィジェット
-  Widget _buildImageWidget(String? imagePath, {double size = 100}) {
+  Widget _buildImageWidget(String? imagePath, {double? size, double? width, double? height}) {
     if (imagePath == null || imagePath.isEmpty) {
       return const SizedBox.shrink();
     }
+
+    final double? targetWidth = width ?? size ?? 100;
+    final double? targetHeight = height ?? size ?? 100;
 
     // Web版ではファイルアクセスができないため、Base64としての表示のみ試みる
     if (kIsWeb) {
       try {
         return Image.memory(
           base64Decode(imagePath),
-          width: size,
-          height: size,
+          width: targetWidth,
+          height: targetHeight,
           fit: BoxFit.cover,
-          errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size),
+          errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 50),
         );
       } catch (_) {
         return Icon(Icons.broken_image, size: size);
@@ -853,19 +970,19 @@ class _HomeScreenState extends State<HomeScreen>
       final bytes = base64Decode(imagePath);
       return Image.memory(
         bytes,
-        width: size,
-        height: size,
+        width: targetWidth,
+        height: targetHeight,
         fit: BoxFit.cover,
-        errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size),
+        errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 50),
       );
     } catch (_) {
       // Base64でなければ、従来のファイルパスとして扱う
       return Image.file(
         File(imagePath),
-        width: size,
-        height: size,
+        width: targetWidth,
+        height: targetHeight,
         fit: BoxFit.cover,
-        errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size),
+        errorBuilder: (c, e, s) => Icon(Icons.broken_image, size: size ?? 50),
       );
     }
   }
