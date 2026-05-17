@@ -1,5 +1,8 @@
 name: Deploy to GitHub Pages
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 on:
   push:
     branches:
@@ -17,14 +20,13 @@ jobs:
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
-
           channel: 'stable'
 
       - name: Build Web
         run: |
           flutter pub get
-          flutter build web --release --base-href "/ChikusaiApp/"
-          
+          flutter build web --release --base-href "/${{ github.event.repository.name }}/"
+
       - name: Deploy
         uses: JamesIves/github-pages-deploy-action@v4
         with:
