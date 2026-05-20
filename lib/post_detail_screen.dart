@@ -23,6 +23,7 @@ class PostDetailScreen extends StatelessWidget {
     final String name = post['name'] ?? '不明';
     final String imagePath = post['imagePath'] ?? '';
     final String hiddenReasonImage = post['hiddenReasonImage'] ?? '';
+    final String restoreReason = post['restoreReason'] ?? ''; // 新しく追加された復元理由
 
     return Scaffold(
       appBar: AppBar(
@@ -51,9 +52,17 @@ class PostDetailScreen extends StatelessWidget {
               const SizedBox(height: 32),
               const Divider(),
               const SizedBox(height: 16),
-              const Text('非表示理由の写真:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red)),
+              const Text('取り消し時の弁明書写真:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.red)),
               const SizedBox(height: 8),
               _buildDetailImage(hiddenReasonImage),
+            ],
+            if (restoreReason.isNotEmpty) ...[
+              const SizedBox(height: 32),
+              const Divider(),
+              const SizedBox(height: 16),
+              const Text('復元理由:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.green)),
+              const SizedBox(height: 8),
+              Text(restoreReason, style: const TextStyle(fontSize: 16)),
             ],
           ],
         ),
@@ -68,23 +77,21 @@ class PostDetailScreen extends StatelessWidget {
           // 画面幅に合わせてキャッシュサイズを最適化（メモリ節約）
           final double cacheSize = constraints.maxWidth * 2;
           
-          if (kIsWeb) {
-            try {
-              return Image.memory(
-                base64Decode(imagePath),
+          try {
+            if (imagePath.startsWith('http')) {
+              return Image.network(
+                imagePath,
                 fit: BoxFit.cover,
-                cacheWidth: cacheSize.toInt(),
               );
-            } catch (_) {
-              return const Icon(Icons.broken_image, size: 100);
             }
+            return Image.memory(
+              base64Decode(imagePath),
+              fit: BoxFit.cover,
+              cacheWidth: cacheSize.toInt(),
+            );
+          } catch (_) {
+            return const Icon(Icons.broken_image, size: 100);
           }
-          return Image.memory(
-            base64Decode(imagePath),
-            fit: BoxFit.cover,
-            cacheWidth: cacheSize.toInt(),
-            errorBuilder: (c, e, s) => const Icon(Icons.broken_image, size: 100),
-          );
         },
       ),
     );
