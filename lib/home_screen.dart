@@ -696,10 +696,10 @@ class _HomeScreenState extends State<HomeScreen>
       final int postNo = _posts.length - i;
 
       // 集計
-      final points = int.tryParse(post['deductionPoints']?.toString() ?? '0') ?? 0;
+      final int points = int.tryParse(post['deductionPoints']?.toString() ?? '0') ?? 0;
       totalDeductionPoints += points;
       if (tabIndex > 0) {
-        final String? classStr = post['class'] as String?;
+        final String? classStr = post['class']?.toString();
         if (classStr != null) {
           final match = _classRegex.firstMatch(classStr);
           if (match != null) {
@@ -946,17 +946,21 @@ class _HomeScreenState extends State<HomeScreen>
                       ),
                       const SizedBox(height: 24), // カテゴリ選択との間にスペース
                       // カテゴリ選択(横スクロールチップ形式に変更:項目が増えても対応可能)
-                      Container(
-                        padding: const EdgeInsets.all(4),
-                        decoration: BoxDecoration(
-                          color: const Color.fromARGB(255, 234, 242, 247), // 全体の薄い背景色
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: Row(
+                      SingleChildScrollView(
+                        scrollDirection: Axis.horizontal,
+                        child: Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: const Color.fromARGB(255, 234, 242, 247), // 全体の薄い背景色
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          constraints: BoxConstraints(
+                            minWidth: MediaQuery.of(context).size.width - 64,
+                          ), // ここにカンマが必要です
+                          child: Row(
                           children: List<Widget>.generate(categories.length, (i) {
                             final isSelected = _selectedCategoryIndex == i;
-                            return Expanded(
-                              child: GestureDetector(
+                            return GestureDetector(
                                 onTap: () {
                                   setState(() {
                                     _selectedCategoryIndex = i;
@@ -966,7 +970,7 @@ class _HomeScreenState extends State<HomeScreen>
                                 },
                                 child: Container(
                                   margin: const EdgeInsets.symmetric(horizontal: 2),
-                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                                   decoration: BoxDecoration(
                                     color: isSelected ? Colors.blueAccent : Colors.transparent,
                                     borderRadius: BorderRadius.circular(8),
@@ -987,9 +991,9 @@ class _HomeScreenState extends State<HomeScreen>
                                     ),
                                   ),
                                 ),
-                              ),
-                            );
+                              ); // ここは return なのでセミコロン (;) が適切です
                           }),
+                        ),
                         ),
                       ),
                       const SizedBox(height: 12),

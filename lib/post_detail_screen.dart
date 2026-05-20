@@ -13,13 +13,15 @@ class PostDetailScreen extends StatelessWidget {
     final String deductionPoints = post['deductionPoints'] ?? '';
     final String deductionReason = post['deductionReason'] ?? '';
     final String remarks = post['remarks'] ?? '';
-    final String timestamp = post['timestamp'] != null
-        ? DateTime.parse(post['timestamp']!)
-            .toLocal()
-            .toString()
-            .substring(0, 16) // YYYY-MM-DD HH:MM
-            .replaceAll('-', '/')
-        : '';
+    String timestamp = '';
+    try {
+      if (post['timestamp'] != null) {
+        final dt = DateTime.parse(post['timestamp']!);
+        timestamp = dt.toLocal().toString().substring(0, 16).replaceAll('-', '/');
+      }
+    } catch (e) {
+      timestamp = '日時不明';
+    }
     final String name = post['name'] ?? '不明';
     final String imagePath = post['imagePath'] ?? '';
     final String hiddenReasonImage = post['hiddenReasonImage'] ?? '';
@@ -78,6 +80,9 @@ class PostDetailScreen extends StatelessWidget {
           final double cacheSize = constraints.maxWidth * 2;
           
           try {
+            if (imagePath.isEmpty) {
+              return const Icon(Icons.image_not_supported, size: 100);
+            }
             if (imagePath.startsWith('http')) {
               return Image.network(
                 imagePath,
