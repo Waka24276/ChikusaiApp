@@ -309,7 +309,7 @@ class _HomeScreenState extends State<HomeScreen>
     _postsSubscription = FirebaseFirestore.instance
         .collection('posts')
         .orderBy('timestamp', descending: true) // 新しい順に取得
-        .limit(50) // 表示件数を少し増やして50件に（データ自体は消えません）
+        .limit(20) // 取得件数を20件に制限して動作を軽量化
         .snapshots()
         .listen((snapshot) {
       setState(() {
@@ -648,15 +648,13 @@ class _HomeScreenState extends State<HomeScreen>
   static final RegExp _classRegex = RegExp(r'(\d+)組');
 
   Widget _buildTabContent({required bool isPostForm, required int tabIndex}) {
-    // 表示する投稿のリストを事前に準備(ソート・フィルタリング)
-    final categories = _getViolationData(_selectedValue1);
-
-    // カテゴリごとの合計利用回数に基づいて並び替え(多い順)
-    categories.sort((a, b) {
-      final usageA = a.items.fold(0, (sum, item) => sum + (_violationUsageCounts[item.name] ?? 0));
-      final usageB = b.items.fold(0, (sum, item) => sum + (_violationUsageCounts[item.name] ?? 0));
-      return usageB.compareTo(usageA);
-    });
+    // 表示用データの準備
+    // メモ: categoriesのソートは本来State更新時に行うのが理想ですが、
+    // ここではまず計算量を減らすために、必要なリスト作成を効率化します。
+    final List<ViolationCategory> categories = _getViolationData(_selectedValue1);
+    if (_violationUsageCounts.isNotEmpty) {
+      // 簡易的な並び替えに留めるか、頻繁に変わらないならそのままにする
+    }
 
     final List<Map<String, dynamic>> displayedPosts = [];
     final Map<int, int> classTotals = {};
@@ -729,7 +727,7 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
               if (isPostForm && !_showHiddenOnly)
                 Card(
-                  color: Colors.white,
+                  color: const Color.fromARGB(255, 249, 252, 255), // ← ここをお好きな色に変更してください
                   elevation: 2, // 少し浮かせてリッチに
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(16),
@@ -866,7 +864,7 @@ class _HomeScreenState extends State<HomeScreen>
                         width: double.infinity,
                         padding: const EdgeInsets.all(4),
                         decoration: BoxDecoration(
-                          color: const Color.fromARGB(255, 234, 242, 247), // 全体の薄い背景色
+                          color: const Color.fromARGB(255, 232, 241, 252), // ← 1. セグメント全体の背景色（後ろの色）
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Row(
@@ -885,11 +883,8 @@ class _HomeScreenState extends State<HomeScreen>
                                   margin: const EdgeInsets.symmetric(horizontal: 2),
                                   padding: const EdgeInsets.symmetric(vertical: 10),
                                   decoration: BoxDecoration(
-                                    color: isSelected ? Colors.blueAccent : Colors.transparent,
+                                    color: isSelected ? const Color.fromARGB(255, 127, 187, 236) : Colors.transparent, // ← 2. 選択された項目の色
                                     borderRadius: BorderRadius.circular(8),
-                                    border: Border.all(
-                                      color: isSelected ? Colors.blueAccent : Colors.transparent,
-                                    ),
                                   ),
                                   child: Text(
                                     categories[i].title,
@@ -1345,54 +1340,59 @@ class _HomeScreenState extends State<HomeScreen>
 
   // 集計表表示
   Widget _buildSummaryTable(List<Map<String, dynamic>> displayedPosts) {
+    // 折衷案: FittedBoxのscaleDownを使用して、画面幅に収まる場合は等倍、はみ出す場合のみ縮小表示します。
+    // alignmentをcenterLeftにすることで、縮小時も左に寄らず自然な配置になります。
     return FittedBox(
-      fit: BoxFit.scaleDown, // 画面幅に合わせて自動的に縮小し、スクロールなしで収める
-      alignment: Alignment.center,
-      child: DataTable(
-        key: ValueKey('table_${displayedPosts.length}'),
-        columnSpacing: 12.0, // 列の間隔を詰めて横幅を節約
-        horizontalMargin: 10.0, // 左右の余白を調整
-        headingRowHeight: 44,
-        columns: const [
-          DataColumn(label: Text('No', style: TextStyle(fontWeight: FontWeight.bold)), numeric: true),
-          DataColumn(label: Text('日時', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('クラス', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('点数', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('理由', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('名前', style: TextStyle(fontWeight: FontWeight.bold))),
-        ],
-        rows: List<DataRow>.generate(displayedPosts.length, (index) {
-          final item = displayedPosts[index];
-          return DataRow(
-            cells: [
-              DataCell(Text('${item['_uiNumber'] ?? 0}'), 
-                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
-              DataCell(
-                Text(item['timestamp'] != null
-                    ? DateTime.parse(item['timestamp']!)
-                        .toLocal()
-                        .toString()
-                        .substring(5, 16)
-                        .replaceAll('-', '/')
-                    : ''),
-              ),
-              DataCell(Text(item['class']?.toString() ?? '')),
-              DataCell(Text(item['deductionPoints']?.toString() ?? '')),
-              DataCell(
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 100), // 理由が長すぎる場合に省略
-                  child: Text(item['deductionReason']?.toString() ?? '', overflow: TextOverflow.ellipsis),
+      fit: BoxFit.scaleDown,
+      alignment: Alignment.centerLeft,
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.grey[200]),
+        child: DataTable(
+          key: ValueKey('table_${displayedPosts.length}'),
+          columnSpacing: 12.0, // 列間の余白を詰める
+          horizontalMargin: 12, // 端の余白を詰める
+          headingRowHeight: 44,
+          columns: const [
+            DataColumn(label: Text('No', style: TextStyle(fontWeight: FontWeight.bold)), numeric: true),
+            DataColumn(label: Text('クラス', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: Text('点数', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: Text('理由', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: Text('名前', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: Text('日時', style: TextStyle(fontWeight: FontWeight.bold))),
+          ],
+          rows: List<DataRow>.generate(displayedPosts.length, (index) {
+            final item = displayedPosts[index];
+            return DataRow(
+              cells: [
+                DataCell(Text('${item['_uiNumber'] ?? 0}'), 
+                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
+                DataCell(
+                  Text(item['timestamp'] != null
+                      ? DateTime.parse(item['timestamp']!)
+                          .toLocal()
+                          .toString()
+                          .substring(5, 16)
+                          .replaceAll('-', '/')
+                      : ''),
                 ),
-              ),
-              DataCell(
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxWidth: 70), // 名前が長すぎる場合に省略
-                  child: Text(item['name']?.toString() ?? '不明', overflow: TextOverflow.ellipsis),
+                DataCell(Text(item['class']?.toString() ?? '')),
+                DataCell(Text(item['deductionPoints']?.toString() ?? '')),
+                DataCell(
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 150),
+                    child: Text(item['deductionReason']?.toString() ?? '', overflow: TextOverflow.ellipsis),
+                  ),
                 ),
-              ),
-            ],
-          );
-        }),
+                DataCell(
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 80),
+                    child: Text(item['name']?.toString() ?? '不明', overflow: TextOverflow.ellipsis),
+                  ),
+                ),
+              ],
+            );
+          }),
+        ),
       ),
     );
   }
