@@ -9,6 +9,9 @@ import 'package:firebase_storage/firebase_storage.dart'; // Storageのインポ�
 import 'dart:async'; // StreamSubscriptionのため
 import 'package:flutter/foundation.dart'; // kIsWeb を使うため
 import 'post_detail_screen.dart'; // Import the new detail screen
+import 'package:pdf/pdf.dart';
+import 'package:pdf/widgets.dart' as pw;
+import 'package:printing/printing.dart';
 
 class HomeScreen extends StatefulWidget {
   final String username;
@@ -54,8 +57,6 @@ class ViolationCategory {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   final _remarksController = TextEditingController();
-  final _violationSearchController = TextEditingController(); // 項目検索用
-  String _violationSearchQuery = ''; // 検索クエリ保持用
   List<Map<String, dynamic>> _posts = []; // Firestoreから取得したデータを保持
   StreamSubscription? _postsSubscription; // リアルタイム更新の購読
   int _selectedValue1 = 1;
@@ -66,8 +67,6 @@ class _HomeScreenState extends State<HomeScreen>
   late FixedExtentScrollController _yearController;
   late FixedExtentScrollController _classController;
   late FixedExtentScrollController _deductionPointsPicker;
-  late FixedExtentScrollController _searchYearPicker;
-  late FixedExtentScrollController _searchClassPicker;
 
   ViolationItem? _selectedViolation; // 選択された違反項目の詳細を保持
   int _selectedCategoryIndex = 0; // 選択中のカテゴリーインデックス
@@ -247,9 +246,6 @@ class _HomeScreenState extends State<HomeScreen>
 
   bool _sortNewestFirst = true; // Added state for sorting order
   // Search filter state
-  int _searchFilterYear = 1; // Default selected year for search
-  String _searchFilterClass = '1'; // Default selected class for search
-  bool _isSearchFilterActive = false; // Flag to indicate if a search filter is applied
   bool _isTableView = false; // 集計表表示かどうかの状態
   bool _isLargeImageMode = false; // 画像を大きく表示するかどうかの状態
   bool _showHiddenOnly = false; // 非表示(アーカイブ)された投稿のみを表示するかどうか
@@ -267,13 +263,10 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _remarksController.dispose();
-    _violationSearchController.dispose();
     _tabController?.dispose(); // null-aware operator を使用して安全に破棄
     _yearController.dispose();
     _classController.dispose();
     _deductionPointsPicker.dispose();
-    _searchYearPicker.dispose();
-    _searchClassPicker.dispose();
     _postsSubscription?.cancel(); // 画面を閉じるときに購読を解除
     super.dispose();
   }
@@ -293,13 +286,6 @@ class _HomeScreenState extends State<HomeScreen>
     );
     _deductionPointsPicker = FixedExtentScrollController(
       initialItem: _selectedDeductionPoints - 1,
-    );
-    // Initialize search filter controllers
-    _searchYearPicker = FixedExtentScrollController(
-      initialItem: _searchFilterYear - 1,
-    );
-    _searchClassPicker = FixedExtentScrollController(
-      initialItem: int.parse(_searchFilterClass) - 1,
     );
   }
 
@@ -323,13 +309,21 @@ class _HomeScreenState extends State<HomeScreen>
     _postsSubscription = FirebaseFirestore.instance
         .collection('posts')
         .orderBy('timestamp', descending: true) // 新しい順に取得
-        .limit(30) // スマホ向けに取得件数を30件に絞ってさらに高速化
+        .limit(50) // 表示件数を少し増やして50件に（データ自体は消えません）
         .snapshots()
         .listen((snapshot) {
       setState(() {
         _posts = snapshot.docs.map((doc) {
-          final data = doc.data();
+          final data = Map<String, dynamic>.from(doc.data());
           data['id'] = doc.id; // ドキュメントIDを保持(削除や更新に必要)
+          
+          // 画像がBase64の場合、ここで一度だけデコードしてバイトデータとして保持しておく
+          final String imagePath = data['imagePath'] ?? '';
+          if (imagePath.isNotEmpty && !imagePath.startsWith('http')) {
+            try {
+              data['_cachedUint8List'] = base64Decode(imagePath);
+            } catch (_) {}
+          }
           return data;
         }).toList();
       });
@@ -379,7 +373,7 @@ class _HomeScreenState extends State<HomeScreen>
                 const SizedBox(height: 16),
                 TextFormField(
                   controller: restoreReasonController,
-                  decoration: const InputDecoration(labelText: '復元理由 (任意)', border: OutlineInputBorder()),
+                  decoration: const InputDecoration(labelText: '弁明を受け付けた人は誰ですか？', border: OutlineInputBorder()),
                   maxLines: 3,
                 ),
               ],
@@ -573,7 +567,8 @@ class _HomeScreenState extends State<HomeScreen>
               floating: true, // 上にスクロールした時にすぐ表示される
               pinned: true,
               snap: true,
-              forceElevated: innerBoxIsScrolled,
+              elevation: 0,
+              forceElevated: false,
               actions: [
                 IconButton(
                   icon: const Icon(Icons.history),
@@ -614,7 +609,7 @@ class _HomeScreenState extends State<HomeScreen>
                 ),
               ],
               bottom: TabBar(
-                isScrollable: true, // タブの文字が隠れないようにする
+                isScrollable: false, // 画面幅いっぱいに均等に配置
                 controller: _tabController!, // ! を追加
                 onTap: (index) {
                   // すでに選択されているタブをもう一度押した時にフィルターをリセット
@@ -664,22 +659,18 @@ class _HomeScreenState extends State<HomeScreen>
     });
 
     final List<Map<String, dynamic>> displayedPosts = [];
-    int totalDeductionPoints = 0;
     final Map<int, int> classTotals = {};
     if (tabIndex > 0) {
       for (int i = 1; i <= 9; i++) classTotals[i] = 0;
     }
 
     // 1回のループで番号付け、フィルタリング、集計を同時に行う (高速化)
-    final String? searchTarget = _isSearchFilterActive && tabIndex == 0 
-        ? '${_searchFilterYear}年${_searchFilterClass}組' : null;
     final String? targetYear = tabIndex > 0 ? '${tabIndex}年' : null;
     final activeFilter = _gradeClassFilters[tabIndex];
     final String? tabClassFilter = (tabIndex > 0 && activeFilter != null) 
         ? '${tabIndex}年${activeFilter}組' : null;
     
     // 比較用ターゲットをクリーンアップ
-    final String? cleanSearchTarget = searchTarget?.trim();
     final String? cleanTargetYear = targetYear?.trim();
 
     for (int i = 0; i < _posts.length; i++) {
@@ -690,14 +681,12 @@ class _HomeScreenState extends State<HomeScreen>
 
       // タブごとの条件
       final String postClass = (post['class']?.toString() ?? '').trim();
-      if (cleanSearchTarget != null && postClass != cleanSearchTarget) continue;
       if (cleanTargetYear != null && !postClass.startsWith(cleanTargetYear)) continue;
 
       final int postNo = _posts.length - i;
 
       // 集計
       final int points = int.tryParse(post['deductionPoints']?.toString() ?? '0') ?? 0;
-      totalDeductionPoints += points;
       if (tabIndex > 0) {
         final String? classStr = post['class']?.toString();
         if (classStr != null) {
@@ -740,9 +729,11 @@ class _HomeScreenState extends State<HomeScreen>
               children: [
               if (isPostForm && !_showHiddenOnly)
                 Card(
-                  color: const Color.fromARGB(255, 249, 254, 255),
-                  elevation: 4,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+                  color: Colors.white,
+                  elevation: 2, // 少し浮かせてリッチに
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                   child: Padding(
                 padding: EdgeInsets.all(_isPostFormExpanded ? 16.0 : 8.0),
                     child: Column(
@@ -820,80 +811,6 @@ class _HomeScreenState extends State<HomeScreen>
                         ],
                       ),
                       const SizedBox(height: 24),
-                      const Row(
-                        children: [
-                          Icon(Icons.search, size: 20, color: Colors.grey),
-                          SizedBox(width: 8),
-                          Text('項目を検索', style: TextStyle(fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-                      // ドロップダウン検索機能 (Autocomplete)
-                      LayoutBuilder(
-                        builder: (context, constraints) => Autocomplete<ViolationItem>(
-                          displayStringForOption: (option) => option.name,
-                          optionsBuilder: (TextEditingValue textEditingValue) {
-                            if (textEditingValue.text.isEmpty) {
-                              return const Iterable<ViolationItem>.empty();
-                            }
-                            // 全カテゴリーから検索対象の項目を収集
-                            final allItems = categories.expand((cat) => cat.items).toList();
-                            final queries = textEditingValue.text.toLowerCase().split(RegExp(r'\s+')).where((s) => s.isNotEmpty);
-                            
-                            return allItems.where((item) {
-                              return queries.every((q) =>
-                                  item.name.toLowerCase().contains(q) ||
-                                  item.tags.any((tag) => tag.toLowerCase().contains(q)));
-                            });
-                          },
-                          onSelected: (ViolationItem selection) {
-                            _onViolationSelected(selection);
-                            // 選択後はフォーカスを外してキーボードを閉じる
-                            FocusScope.of(context).unfocus();
-                          },
-                          fieldViewBuilder: (context, controller, focusNode, onFieldSubmitted) {
-                            return TextField(
-                              controller: controller,
-                              focusNode: focusNode,
-                              decoration: InputDecoration(
-                                prefixIcon: const Icon(Icons.search, size: 20),
-                                isDense: true,
-                                border: OutlineInputBorder(borderRadius: BorderRadius.circular(30)),
-                                suffixIcon: controller.text.isNotEmpty 
-                                  ? IconButton(icon: const Icon(Icons.clear, size: 18), onPressed: () => controller.clear()) 
-                                  : null,
-                              ),
-                            );
-                          },
-                          // ドロップダウンのデザイン
-                          optionsViewBuilder: (context, onSelected, options) {
-                            return Align(
-                              alignment: Alignment.topLeft,
-                              child: Material(
-                                elevation: 4.0,
-                                borderRadius: BorderRadius.circular(8),
-                                child: Container(
-                                  width: constraints.maxWidth,
-                                  constraints: const BoxConstraints(maxHeight: 250),
-                                  child: ListView.builder(
-                                    padding: EdgeInsets.zero,
-                                    shrinkWrap: true,
-                                    itemCount: options.length,
-                                    itemBuilder: (context, index) {
-                                      final option = options.elementAt(index);
-                                      return ListTile(
-                                      title: Text(option.name, style: const TextStyle(fontSize: 14)), // 項目名のみ表示
-                                        onTap: () => onSelected(option),
-                                      );
-                                    },
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                      const SizedBox(height: 16),
                       // クイック選択セクション
                       const Row(
                         children: [
@@ -945,22 +862,18 @@ class _HomeScreenState extends State<HomeScreen>
                         },
                       ),
                       const SizedBox(height: 24), // カテゴリ選択との間にスペース
-                      // カテゴリ選択(横スクロールチップ形式に変更:項目が増えても対応可能)
-                      SingleChildScrollView(
-                        scrollDirection: Axis.horizontal,
-                        child: Container(
-                          padding: const EdgeInsets.all(4),
-                          decoration: BoxDecoration(
-                            color: const Color.fromARGB(255, 234, 242, 247), // 全体の薄い背景色
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          constraints: BoxConstraints(
-                            minWidth: MediaQuery.of(context).size.width - 64,
-                          ), // ここにカンマが必要です
-                          child: Row(
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.all(4),
+                        decoration: BoxDecoration(
+                          color: const Color.fromARGB(255, 234, 242, 247), // 全体の薄い背景色
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: Row(
                           children: List<Widget>.generate(categories.length, (i) {
                             final isSelected = _selectedCategoryIndex == i;
-                            return GestureDetector(
+                            return Expanded(
+                              child: GestureDetector(
                                 onTap: () {
                                   setState(() {
                                     _selectedCategoryIndex = i;
@@ -970,16 +883,13 @@ class _HomeScreenState extends State<HomeScreen>
                                 },
                                 child: Container(
                                   margin: const EdgeInsets.symmetric(horizontal: 2),
-                                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
                                   decoration: BoxDecoration(
                                     color: isSelected ? Colors.blueAccent : Colors.transparent,
                                     borderRadius: BorderRadius.circular(8),
                                     border: Border.all(
                                       color: isSelected ? Colors.blueAccent : Colors.transparent,
                                     ),
-                                    boxShadow: isSelected ? [
-                                      BoxShadow(color: Colors.black.withOpacity(0.1), blurRadius: 4, offset: const Offset(0, 2))
-                                    ] : null,
                                   ),
                                   child: Text(
                                     categories[i].title,
@@ -991,12 +901,12 @@ class _HomeScreenState extends State<HomeScreen>
                                     ),
                                   ),
                                 ),
-                              ); // ここは return なのでセミコロン (;) が適切です
+                              ),
+                            );
                           }),
                         ),
-                        ),
                       ),
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 16),
                       // 内容選択(チップ形式:セグメントを選んだらすぐに表示される)
                       GridView.builder(
                         shrinkWrap: true,
@@ -1106,6 +1016,7 @@ class _HomeScreenState extends State<HomeScreen>
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.grey[200],
                               foregroundColor: Colors.black87,
+                              elevation: 0,
                             ),
                           ),
                           ElevatedButton.icon(
@@ -1115,6 +1026,7 @@ class _HomeScreenState extends State<HomeScreen>
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blueAccent,
                               foregroundColor: Colors.white,
+                              elevation: 0,
                             ),
                           ),
                         ],
@@ -1130,17 +1042,13 @@ class _HomeScreenState extends State<HomeScreen>
                   ],
                 ),
               ),
-            ),
-            if (tabIndex == 0) ...[
-              const SizedBox(height: 16),
-              _buildSearchFilterSection(totalDeductionPoints),
-            ],
+            ), // End Card
             if (tabIndex > 0) ...[
               const SizedBox(height: 16),
               _buildGradeSummarySection(tabIndex, classTotals),
             ],
             const SizedBox(height: 16),
-            const _SectionHeader(icon: Icons.history_edu, title: '投稿履歴'),
+            const _SectionHeader(icon: Icons.history_edu, title: '投稿履歴'), // constを追加
           ], // Columnのchildrenリストを閉じるカッコ
         ), // Columnを閉じるカッコ
       ), // SliverToBoxAdapterを閉じるカッコ
@@ -1148,7 +1056,23 @@ class _HomeScreenState extends State<HomeScreen>
         if (_isTableView)
             SliverPadding(
               padding: const EdgeInsets.symmetric(horizontal: 16.0),
-              sliver: SliverToBoxAdapter(child: _buildSummaryTable(displayedPosts)),
+              sliver: SliverToBoxAdapter(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: ElevatedButton.icon(
+                        onPressed: () => _exportPostsToPdf(displayedPosts, tabIndex),
+                        icon: const Icon(Icons.picture_as_pdf, size: 18),
+                        label: const Text('PDF出力 (A4)', style: TextStyle(fontSize: 12)),
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.red[50], foregroundColor: Colors.red[700], elevation: 0),
+                      ),
+                    ),
+                    _buildSummaryTable(displayedPosts),
+                  ],
+                ),
+              ),
             )
           else
             SliverPadding(
@@ -1162,120 +1086,6 @@ class _HomeScreenState extends State<HomeScreen>
             ),
           const SliverToBoxAdapter(child: SizedBox(height: 32)),
       ],
-    );
-  }
-
-  // 検索フィルター部分をメソッド化してコードを整理
-  Widget _buildSearchFilterSection(int totalDeductionPoints) {
-    return Card(
-              color: const Color.fromARGB(255, 242, 249, 255), // 検索欄であることがわかりやすい背景色
-              elevation: 0.5,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(12),
-                side: BorderSide(color: Colors.blueGrey.withOpacity(0.1)),
-              ),
-              margin: const EdgeInsets.only(bottom: 16),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 4.0),
-                child: Row(
-                  children: [
-                    const Icon(Icons.filter_list, size: 18, color: Colors.blueGrey),
-                    const SizedBox(width: 4),
-                    // 合計点数表示エリア:Expandedを使って、ピッカーの位置が左右に動かないように固定
-                    Expanded(
-                      child: _isSearchFilterActive
-                          ? Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: Colors.red[50],
-                                borderRadius: BorderRadius.circular(6),
-                              ),
-                              child: FittedBox(
-                                fit: BoxFit.scaleDown,
-                                child: Text(
-                                  '$totalDeductionPoints点',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.bold,
-                                    color: Colors.red[700],
-                                    fontSize: 24, // 枠内で最大級に大きく
-                                  ),
-                                ),
-                              ),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
-                    if (!_isSearchFilterActive) const Spacer(), // 検索前はピッカーを右に寄せる
-
-                    // ホイールピッカー部分 (右側のアイコン横に寄せる)
-                    AbsorbPointer(
-                      absorbing: _isSearchFilterActive, // 検索中は操作を無効化(固定)
-                      child: Opacity(
-                        opacity: _isSearchFilterActive ? 0.5 : 1.0, // 固定されていることがわかるよう半透明に
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            _buildPickerContainer(
-                              width: 42,
-                              picker: CupertinoPicker(
-                                scrollController: _searchYearPicker,
-                                itemExtent: 32.0,
-                                onSelectedItemChanged: (int index) {
-                                  setState(() {
-                                    _searchFilterYear = index + 1;
-                                  });
-                                },
-                                children: List<Widget>.generate(3, (int index) => Center(child: Text('${index + 1}'))),
-                              ),
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 2.0), // 間隔を縮小
-                              child: Text('年', style: TextStyle(fontSize: 12, color: Colors.blueGrey)), 
-                            ),
-                            _buildPickerContainer(
-                              width: 42,
-                              picker: CupertinoPicker(
-                                scrollController: _searchClassPicker,
-                                itemExtent: 32.0,
-                                onSelectedItemChanged: (int index) {
-                                  setState(() {
-                                    _searchFilterClass = (index + 1).toString();
-                                  });
-                                },
-                                children: List<Widget>.generate(9, (int index) => Center(child: Text('${index + 1}'))),
-                              ),
-                            ),
-                            const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 2.0), // 間隔を縮小
-                              child: Text('組', style: TextStyle(fontSize: 12, color: Colors.blueGrey)),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 4),
-                    IconButton(
-                      visualDensity: VisualDensity.compact,
-                      onPressed: () => setState(() => _isSearchFilterActive = true),
-                      icon: const Icon(Icons.search, color: Colors.blueAccent),
-                      tooltip: '検索',
-                    ),
-                    if (_isSearchFilterActive)
-                      IconButton(
-                        visualDensity: VisualDensity.compact,
-                        onPressed: () {
-                          setState(() {
-                            _isSearchFilterActive = false;
-                            // クリア時にピッカーをリセットせず、現在の位置を保持(勝手に動かさない)
-                          });
-                        },
-                        icon: const Icon(Icons.clear, color: Colors.grey),
-                        tooltip: 'クリア',
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
-                      ),
-                  ],
-                ),
-              ),
     );
   }
 
@@ -1311,7 +1121,7 @@ class _HomeScreenState extends State<HomeScreen>
                     decoration: BoxDecoration(
                       borderRadius: BorderRadius.circular(8),
                       border: Border.all(
-                        color: isSelected ? Colors.blue : Colors.blueGrey.withOpacity(0.1),
+                        color: isSelected ? Colors.blue : Colors.blueGrey.withOpacity(0.4),
                         width: isSelected ? 2 : 1,
                       ),
                       color: isSelected
@@ -1350,12 +1160,17 @@ class _HomeScreenState extends State<HomeScreen>
   Widget _buildPostCard(Map<String, dynamic> item) {
     final String imagePath = item['imagePath'] ?? '';
     final int postNumber = item['_uiNumber'] ?? 0;
+    final Uint8List? cachedBytes = item['_cachedUint8List'] as Uint8List?;
 
     if (_isLargeImageMode && imagePath.isNotEmpty) {
       return Card(
         clipBehavior: Clip.antiAlias,
         color: Colors.white,
+        elevation: 1, // 控えめな影
         margin: const EdgeInsets.only(bottom: 16),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12),
+        ),
         child: InkWell(
           onTap: () {
             Navigator.push(
@@ -1366,7 +1181,7 @@ class _HomeScreenState extends State<HomeScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              _buildImageWidget(imagePath, width: double.infinity, height: 200),
+              _buildImageWidget(imagePath, width: double.infinity, height: 200, cachedBytes: cachedBytes),
               Padding(
                 padding: const EdgeInsets.all(12.0),
                 child: Column(
@@ -1419,7 +1234,11 @@ class _HomeScreenState extends State<HomeScreen>
 
     return Card(
       color: Colors.white,
+      elevation: 1, // 控えめな影
       margin: const EdgeInsets.only(bottom: 12),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         leading: Row(
@@ -1432,7 +1251,7 @@ class _HomeScreenState extends State<HomeScreen>
             const SizedBox(width: 8),
             ClipRRect(
               borderRadius: BorderRadius.circular(4),
-              child: _buildImageWidget(item['imagePath'], size: 50),
+              child: _buildImageWidget(item['imagePath'], size: 50, cachedBytes: cachedBytes),
             ),
           ],
         ),
@@ -1526,29 +1345,51 @@ class _HomeScreenState extends State<HomeScreen>
 
   // 集計表表示
   Widget _buildSummaryTable(List<Map<String, dynamic>> displayedPosts) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
+    return FittedBox(
+      fit: BoxFit.scaleDown, // 画面幅に合わせて自動的に縮小し、スクロールなしで収める
+      alignment: Alignment.center,
       child: DataTable(
         key: ValueKey('table_${displayedPosts.length}'),
-        columnSpacing: 16.0,
+        columnSpacing: 12.0, // 列の間隔を詰めて横幅を節約
+        horizontalMargin: 10.0, // 左右の余白を調整
+        headingRowHeight: 44,
         columns: const [
-          DataColumn(label: Text('No.', style: TextStyle(fontWeight: FontWeight.bold)), numeric: true),
+          DataColumn(label: Text('No', style: TextStyle(fontWeight: FontWeight.bold)), numeric: true),
+          DataColumn(label: Text('日時', style: TextStyle(fontWeight: FontWeight.bold))),
           DataColumn(label: Text('クラス', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('減点数', style: TextStyle(fontWeight: FontWeight.bold))),
+          DataColumn(label: Text('点数', style: TextStyle(fontWeight: FontWeight.bold))),
           DataColumn(label: Text('理由', style: TextStyle(fontWeight: FontWeight.bold))),
-          DataColumn(label: Text('備考', style: TextStyle(fontWeight: FontWeight.bold))),
           DataColumn(label: Text('名前', style: TextStyle(fontWeight: FontWeight.bold))),
         ],
         rows: List<DataRow>.generate(displayedPosts.length, (index) {
           final item = displayedPosts[index];
           return DataRow(
             cells: [
-              DataCell(Text('${item['_uiNumber'] ?? 0}'), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
+              DataCell(Text('${item['_uiNumber'] ?? 0}'), 
+                       onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
+              DataCell(
+                Text(item['timestamp'] != null
+                    ? DateTime.parse(item['timestamp']!)
+                        .toLocal()
+                        .toString()
+                        .substring(5, 16)
+                        .replaceAll('-', '/')
+                    : ''),
+              ),
               DataCell(Text(item['class']?.toString() ?? '')),
               DataCell(Text(item['deductionPoints']?.toString() ?? '')),
-              DataCell(Text(item['deductionReason']?.toString() ?? '')),
-              DataCell(SizedBox(width: 100, child: Text(item['remarks']?.toString() ?? '', maxLines: 2, overflow: TextOverflow.ellipsis))),
-              DataCell(Text(item['name']?.toString() ?? '不明')),
+              DataCell(
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 100), // 理由が長すぎる場合に省略
+                  child: Text(item['deductionReason']?.toString() ?? '', overflow: TextOverflow.ellipsis),
+                ),
+              ),
+              DataCell(
+                ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 70), // 名前が長すぎる場合に省略
+                  child: Text(item['name']?.toString() ?? '不明', overflow: TextOverflow.ellipsis),
+                ),
+              ),
             ],
           );
         }),
@@ -1556,7 +1397,113 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildImageWidget(String? imagePath, {double? size, double? width, double? height}) {
+  /// 表示中のデータをA4サイズのPDFプレビューとして表示する
+  Future<void> _exportPostsToPdf(List<Map<String, dynamic>> posts, int tabIndex) async {
+    final int? activeClass = _gradeClassFilters[tabIndex];
+    final bool isClassView = tabIndex > 0 && activeClass != null;
+    String title = tabIndex == 0 ? '全学年 減点集計表' : '$tabIndex年 減点集計表';
+    if (isClassView) {
+      title = '$tabIndex年$activeClass組 減点集計表';
+    }
+    final int totalPoints = posts.fold(0, (sum, item) => sum + (int.tryParse(item['deductionPoints']?.toString() ?? '0') ?? 0));
+
+    try {
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => Scaffold(
+            appBar: AppBar(
+              title: Text('$title - プレビュー'),
+              backgroundColor: Colors.white,
+              foregroundColor: Colors.black,
+            ),
+            body: PdfPreview(
+              canDebug: false,
+              canChangePageFormat: false,
+              build: (format) async {
+                final pdf = pw.Document();
+                final font = await PdfGoogleFonts.notoSansJPRegular();
+                final boldFont = await PdfGoogleFonts.notoSansJPBold();
+
+                pdf.addPage(
+                  pw.MultiPage(
+                    pageFormat: PdfPageFormat.a4,
+                    margin: const pw.EdgeInsets.all(20),
+                    theme: pw.ThemeData.withFont(base: font, bold: boldFont),
+                    footer: (pw.Context context) {
+                      return pw.Container(
+                        alignment: pw.Alignment.centerRight,
+                        margin: const pw.EdgeInsets.only(top: 10),
+                        child: pw.Text(
+                          '${context.pageNumber} / ${context.pagesCount} ページ',
+                          style: const pw.TextStyle(fontSize: 10),
+                        ),
+                      );
+                    },
+                    build: (pw.Context context) {
+                      return [
+                        pw.Header(
+                          level: 0,
+                          child: pw.Row(
+                            mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                            children: [
+                              pw.Text(title, style: pw.TextStyle(fontSize: 18, font: boldFont)),
+                              pw.Text('出力日: ${DateTime.now().toString().substring(0, 16)}', style: const pw.TextStyle(fontSize: 10)),
+                            ],
+                          ),
+                        ),
+                        pw.SizedBox(height: 20),
+                        pw.Table.fromTextArray(
+                          headerStyle: pw.TextStyle(font: boldFont, fontSize: 10),
+                          cellStyle: const pw.TextStyle(fontSize: 9),
+                          headerDecoration: const pw.BoxDecoration(color: PdfColors.grey300), // モノクロのグレー
+                          headers: ['No.', '日時', 'クラス', '減点数', '理由', '名前'],
+                          columnWidths: {
+                            0: const pw.FixedColumnWidth(25),  // No.
+                            1: const pw.FixedColumnWidth(75),  // 日時
+                            2: const pw.FixedColumnWidth(55),  // クラス
+                            3: const pw.FixedColumnWidth(35),  // 減点数
+                            4: const pw.FlexColumnWidth(3),    // 理由 (可変・広め)
+                            5: const pw.FlexColumnWidth(1.5),  // 名前 (可変)
+                          },
+                          cellAlignment: pw.Alignment.centerLeft,
+                          headerAlignment: pw.Alignment.center,
+                          data: [
+                            ...posts.map((p) => [
+                              p['_uiNumber']?.toString() ?? '',
+                              p['timestamp'] != null
+                                  ? DateTime.parse(p['timestamp']!)
+                                      .toLocal()
+                                      .toString()
+                                      .substring(5, 16)
+                                      .replaceAll('-', '/')
+                                  : '',
+                              p['class']?.toString() ?? '',
+                              p['deductionPoints']?.toString() ?? '',
+                              p['deductionReason']?.toString() ?? '',
+                              p['name']?.toString() ?? '',
+                            ]).toList(),
+                            if (isClassView)
+                              ['', '', '合計', totalPoints.toString(), '', ''],
+                          ],
+                        ),
+                      ];
+                    },
+                  ),
+                );
+                return pdf.save();
+              },
+              pdfFileName: '${title}_${DateTime.now().millisecondsSinceEpoch}.pdf',
+            ),
+          ),
+        ),
+      );
+    } catch (e) {
+      debugPrint('PDFプレビューエラー: $e');
+    }
+  }
+
+  Widget _buildImageWidget(String? imagePath, {double? size, double? width, double? height, Uint8List? cachedBytes}) {
     if (imagePath == null || imagePath.isEmpty) return const SizedBox.shrink();
     final double? w = width ?? size;
     final double? h = height ?? size;
@@ -1565,31 +1512,39 @@ class _HomeScreenState extends State<HomeScreen>
       final bool isNetwork = imagePath.startsWith('http');
       final int? cacheW = (w != null && w > 0 && w.isFinite) ? (w * 2.0).toInt() : null;
       final int? cacheH = (h != null && h > 0 && h.isFinite) ? (h * 2.0).toInt() : null;
+
       return RepaintBoundary(
         child: isNetwork
             ? Image.network(
                 imagePath,
                 width: w, height: h, fit: BoxFit.cover,
+                cacheWidth: cacheW, cacheHeight: cacheH,
                 errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize),
               )
-            : (imagePath.length > 50) // Base64として妥当な長さか簡易チェック
-                ? Image.memory(
-                    base64Decode(imagePath),
-                    width: w, height: h, fit: BoxFit.cover,
-                    filterQuality: FilterQuality.low,
-                    gaplessPlayback: true,
-                    // Webや制約なしの場合に 0 にならないよう保護
-                    cacheWidth: (cacheW != null && cacheW > 0) ? cacheW : null,
-                    cacheHeight: (cacheH != null && cacheH > 0) ? cacheH : null,
-                    errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize),
-                  )
-                : Icon(Icons.broken_image, size: iconSize),
+            : _buildMemoryImage(imagePath, cachedBytes, w, h, cacheW, cacheH, iconSize), // 分離したメソッドを呼ぶ
       );
     } catch (_) {
       return Icon(Icons.broken_image, size: iconSize);
     }
   }
-}
+
+  // メソッドを独立させる（構文エラーの修正）
+  Widget _buildMemoryImage(String imagePath, Uint8List? fallbackBytes, double? w, double? h, int? cacheW, int? cacheH, double iconSize) {
+    // fallbackBytesがあればデコード不要
+    final bytes = fallbackBytes ?? (imagePath.length > 50 ? base64Decode(imagePath) : null);
+    if (bytes == null) return Icon(Icons.broken_image, size: iconSize);
+    
+    return Image.memory(
+      bytes,
+      width: w, height: h, fit: BoxFit.cover,
+      filterQuality: FilterQuality.low,
+      gaplessPlayback: true,
+      cacheWidth: (cacheW != null && cacheW > 0) ? cacheW : null,
+      cacheHeight: (cacheH != null && cacheH > 0) ? cacheH : null,
+      errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize),
+    );
+  }
+} // _HomeScreenState を閉じるカッコ（重要）
 
 class _SectionHeader extends StatelessWidget {
   final IconData icon;
