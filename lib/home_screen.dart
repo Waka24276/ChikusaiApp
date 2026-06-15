@@ -12,6 +12,7 @@ import 'post_detail_screen.dart'; // Import the new detail screen
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
+import 'date_helpers.dart'; // インポートパスを修正
 
 class HomeScreen extends StatefulWidget {
   final String username;
@@ -30,7 +31,7 @@ class ViolationItem {
   final bool isCommon; // よく使う項目かどうか
   final List<String> tags; // 検索用キーワード
 
-  ViolationItem(this.name, this.minPoints, {int? maxPoints, this.isCommon = false, this.tags = const []})
+  const ViolationItem(this.name, this.minPoints, {int? maxPoints, this.isCommon = false, this.tags = const []})
       : maxPoints = maxPoints ?? minPoints; 
 
   // ドロップダウンでの比較を正しく行うための定義
@@ -58,6 +59,11 @@ class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   final _remarksController = TextEditingController();
   List<Map<String, dynamic>> _posts = []; // Firestoreから取得したデータを保持
+  // タブごとの表示用データと集計結果をキャッシュ
+  final List<List<Map<String, dynamic>>> _filteredPostsCache = [[], [], [], []];
+  final List<Map<int, int>> _classTotalsCache = [{}, {}, {}, {}];
+  final List<Map<int, int>> _archivedClassTotalsCache = [{}, {}, {}, {}];
+
   StreamSubscription? _postsSubscription; // リアルタイム更新の購読
   int _selectedValue1 = 1;
   String _selectedValue2 = '1';
@@ -80,87 +86,87 @@ class _HomeScreenState extends State<HomeScreen>
       // 3年生用の33項目 (サンプル)
       return [
         ViolationCategory('ステージ', [
-          ViolationItem('リハで時間超過', 7),
-          ViolationItem('舞台撤退時忘れ物', 1,),
-          ViolationItem('危険な大道具の使用', 12,),
-          ViolationItem('無届での割れ物の使用', 8,),
-          ViolationItem('上演時刻超過', 20,),
+          _rehaJikanChoka,
+          _butaiWasuremono,
+          _kikenNaOdogu,
+          _mutodokeWaremono,
+          _jyoenJikokuChoka,
         ]),
         ViolationCategory('学校祭', [   
-          ViolationItem('退校時間後北館、中館にいる', 1,),
-          ViolationItem('外出届を携帯せず外出', 20),
-          ViolationItem('指定時間外での作業', 3),
-          ViolationItem('指定場所以外での作業', 3),
-          ViolationItem('本校生徒、職員以外の参加', 15),
+          _taikoGoKitaChukan,
+          _gaishutsuTodoke,
+          _jikanGaiSagyoo,
+          _bashoGaiSagyoo,
+          _igaiSanka,
         ]),
         ViolationCategory('資材', [
-          ViolationItem('クラス工具紛失、未返却', 5),
-          ViolationItem('生徒会工具未返却', 3),
-          ViolationItem('生徒会工具紛失', 8),
-          ViolationItem('役員以外が生徒会工具を借りる', 1),
-          ViolationItem('生徒会工具の又貸し、無断借用', 1),
-          ViolationItem('許可無し電動工具使用', 15),
-          ViolationItem('私物工具使用許可証への違反行為', 10),
-          ViolationItem('電動工具による危険行為', 10,),
-          ViolationItem('不必要な時間、長時間の盗電行為', 5),
-          ViolationItem('ミシンの不適切な取扱い', 3),
-          ViolationItem('作業場所の清掃不備', 3, tags: ['ペンキ','ガムテープ', '汚れ']),
-          ViolationItem('下校時刻後に危険物を放置', 5),
-          ViolationItem('ペンキを指定場所以外に流す', 12, tags: ['水道', '排水', '汚染']),
-          ViolationItem('使用禁止物の使用', 10),
-          ViolationItem('ごみの分別不備、不適切廃棄', 3),
-          ViolationItem('隠蔽、虚偽の報告、認めない', 10, maxPoints: 20),
-          ViolationItem('設備、備品、工具の破損、落書き', 3, maxPoints: 20, tags: ['壊した', '机', '椅子', '壁']),
+          _koguFunshitsu,
+          _seitoKaiKoguMiHenkyaku,
+          _seitoKaiKoguFunshitsu,
+          _yakuinIgaiKariiru,
+          _mataKashiMudai,
+          _kyokaNashiDenko,
+          _shibutsuKoguViolation,
+          _denkoKiken,
+          _fuyonaToden,
+          _mishinFuteki,
+          _seisoFubi, // Use the centralized definition with maxPoints: 20
+          _kikenbutsuHouchi,
+          _penkiIgaiNagashi,
+          _shiyoKinshi,
+          _gomiBunbetsu,
+          _inpeiKyogi,
+          _sonshoRakugaki,
         ]),
         ViolationCategory('PR', [
-          ViolationItem('垂れ幕、装飾が展示中に落下', 20),
-          ViolationItem('学実の印が無い看板等の使用', 5),
-          ViolationItem('景品を配布する', 10, tags: ['お菓子', 'プレゼント']),
-          ViolationItem('安全性に欠けたPR', 5),
-          ViolationItem('15役から許可の無いPR', 4),
+          _tareMakuRakka_3rd, // Use the 3rd year specific item
+          _gakujitsuInNashi,
+          _keihinHaifu,
+          _anzenKake,
+          _jyuGoYakuKyokaNashi,
         ]),
       ];
     } else {
       // 1,2年生用の32項目 (サンプル)
       return [
         ViolationCategory('展示', [
-          ViolationItem('提出した設計図と異なる構造で制作', 20),
-          ViolationItem('許可なしにポール以外の支柱を使用', 17, tags: ['15役']),
-          ViolationItem('廊下へ30㎝以上はみ出した制作', 5, tags: ['建築物']),
-          ViolationItem('会場時に来場者が入場できない状態', 5),
+          _sekkeiZutoKotonaru,
+          _kyokaNashiPoleIgai,
+          _rokaHamiDashi,
+          _kaijoJiniNyujoFukano,
         ]),
         ViolationCategory('学校祭', [
-          ViolationItem('退校時刻後北館、中館にいる', 1,),
-          ViolationItem('外出届を携帯せず外出', 20),
-          ViolationItem('指定時間外での作業', 3),
-          ViolationItem('指定場所以外での作業', 3),
-          ViolationItem('本校生徒、職員以外の参加', 15),
+          _taikoGoKitaChukan,
+          _gaishutsuTodoke,
+          _jikanGaiSagyoo,
+          _bashoGaiSagyoo,
+          _igaiSanka,
         ]),
         ViolationCategory('資材', [
-          ViolationItem('クラス工具紛失、未返却', 5),
-          ViolationItem('生徒会工具未返却', 3),
-          ViolationItem('生徒会工具紛失', 8),
-          ViolationItem('役員以外が生徒会工具を借りる', 1),
-          ViolationItem('生徒会工具の又貸し、無断借用', 1),
-          ViolationItem('許可無し電動工具使用', 15),
-          ViolationItem('私物工具使用許可証への違反行為', 10),
-          ViolationItem('電動工具による危険行為', 10,),
-          ViolationItem('不必要な時間、長時間の盗電行為', 5),
-          ViolationItem('ミシンの不適切な取扱い', 3),
-          ViolationItem('作業場所の清掃不備', 3, maxPoints: 20, tags: ['ペンキ', 'ガムテープ', '汚れ']),
-          ViolationItem('下校時刻後に危険物を放置', 5),
-          ViolationItem('ペンキを指定場所以外に流す', 12, tags: ['水道', '排水', '汚染']),
-          ViolationItem('使用禁止物の使用', 10),
-          ViolationItem('ごみの分別不備、不適切廃棄', 3),
-          ViolationItem('隠蔽、虚偽の報告、認めない', 10, maxPoints: 20),
-          ViolationItem('設備、備品、工具の破損、落書き', 3, maxPoints: 20, tags: ['壊した', '机', '椅子', '壁']),
+          _koguFunshitsu,
+          _seitoKaiKoguMiHenkyaku,
+          _seitoKaiKoguFunshitsu,
+          _yakuinIgaiKariiru,
+          _mataKashiMudai,
+          _kyokaNashiDenko,
+          _shibutsuKoguViolation,
+          _denkoKiken,
+          _fuyonaToden,
+          _mishinFuteki,
+          _seisoFubi, // Use the centralized definition with maxPoints: 20
+          _kikenbutsuHouchi,
+          _penkiIgaiNagashi,
+          _shiyoKinshi,
+          _gomiBunbetsu,
+          _inpeiKyogi,
+          _sonshoRakugaki,
         ]),
         ViolationCategory('PR', [
-          ViolationItem('垂れ幕、装飾が展示中に落下', 10),
-          ViolationItem('学実の印が無い看板等の使用', 5),
-          ViolationItem('景品を配布する', 10, tags: ['お菓子', 'プレゼント']),
-          ViolationItem('安全性に欠けたPR', 5),
-          ViolationItem('15役から許可の無いPR', 4),
+          _tareMakuRakka_1_2nd, // Use the 1,2nd year specific item
+          _gakujitsuInNashi,
+          _keihinHaifu,
+          _anzenKake,
+          _jyuGoYakuKyokaNashi,
         ]),
       ];
     }
@@ -252,6 +258,52 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isPostFormExpanded = true; // 減点登録フォームが開いているかどうか
   final Map<int, int> _gradeClassFilters = {}; // 学年ごとのクラスフィルター状態 (tabIndex: classNum)
 
+  // Define common violation items to avoid duplication and ensure consistency
+  static const ViolationItem _rehaJikanChoka = ViolationItem('リハで時間超過', 7);
+  static const ViolationItem _butaiWasuremono = ViolationItem('舞台撤退時忘れ物', 1);
+  static const ViolationItem _kikenNaOdogu = ViolationItem('危険な大道具の使用', 12);
+  static const ViolationItem _mutodokeWaremono = ViolationItem('無届での割れ物の使用', 8);
+  static const ViolationItem _jyoenJikokuChoka = ViolationItem('上演時刻超過', 20);
+
+  static const ViolationItem _taikoGoKitaChukan = ViolationItem('退校時間後北館、中館にいる', 1);
+  static const ViolationItem _gaishutsuTodoke = ViolationItem('外出届を携帯せず外出', 20);
+  static const ViolationItem _jikanGaiSagyoo = ViolationItem('指定時間外での作業', 3);
+  static const ViolationItem _bashoGaiSagyoo = ViolationItem('指定場所以外での作業', 3); // Already const
+  static const ViolationItem _igaiSanka = ViolationItem('本校生徒、職員以外の参加', 15);
+
+  static const ViolationItem _koguFunshitsu = ViolationItem('クラス工具紛失、未返却', 5);
+  static const ViolationItem _seitoKaiKoguMiHenkyaku = ViolationItem('生徒会工具未返却', 3);
+  static const ViolationItem _seitoKaiKoguFunshitsu = ViolationItem('生徒会工具紛失', 8);
+  static const ViolationItem _yakuinIgaiKariiru = ViolationItem('役員以外が生徒会工具を借りる', 1);
+  static const ViolationItem _mataKashiMudai = ViolationItem('生徒会工具の又貸し、無断借用', 1);
+  static const ViolationItem _kyokaNashiDenko = ViolationItem('許可無し電動工具使用', 15);
+  static const ViolationItem _shibutsuKoguViolation = ViolationItem('私物工具使用許可証への違反行為', 10);
+  static const ViolationItem _denkoKiken = ViolationItem('電動工具による危険行為', 10);
+  static const ViolationItem _fuyonaToden = ViolationItem('不必要な時間、長時間の盗電行為', 5);
+  static const ViolationItem _mishinFuteki = ViolationItem('ミシンの不適切な取扱い', 3);
+  // This is the item to fix: ensure maxPoints is 20 for all uses
+  static const ViolationItem _seisoFubi = ViolationItem('作業場所の清掃不備', 3, maxPoints: 20, tags: ['ペンキ', 'ガムテープ', '汚れ']);
+  static const ViolationItem _kikenbutsuHouchi = ViolationItem('下校時刻後に危険物を放置', 5);
+  static const ViolationItem _penkiIgaiNagashi = ViolationItem('ペンキを指定場所以外に流す', 12, tags: ['水道', '排水', '汚染']);
+  static const ViolationItem _shiyoKinshi = ViolationItem('使用禁止物の使用', 10);
+  static const ViolationItem _gomiBunbetsu = ViolationItem('ごみの分別不備、不適切廃棄', 3);
+  static const ViolationItem _inpeiKyogi = ViolationItem('隠蔽、虚偽の報告、認めない', 10, maxPoints: 20);
+  static const ViolationItem _sonshoRakugaki = ViolationItem('設備、備品、工具の破損、落書き', 3, maxPoints: 20, tags: ['壊した', '机', '椅子', '壁']);
+
+  // PR items - note the different points for '垂れ幕、装飾が展示中に落下'
+  static const ViolationItem _tareMakuRakka_3rd = ViolationItem('垂れ幕、装飾が展示中に落下', 20); // 3年生用
+  static const ViolationItem _tareMakuRakka_1_2nd = ViolationItem('垂れ幕、装飾が展示中に落下', 10); // 1,2年生用
+  static const ViolationItem _gakujitsuInNashi = ViolationItem('学実の印が無い看板等の使用', 5);
+  static const ViolationItem _keihinHaifu = ViolationItem('景品を配布する', 10, tags: ['お菓子', 'プレゼント']);
+  static const ViolationItem _anzenKake = ViolationItem('安全性に欠けたPR', 5);
+  static const ViolationItem _jyuGoYakuKyokaNashi = ViolationItem('15役から許可の無いPR', 4);
+
+  // Exhibition items (1,2 year specific)
+  static const ViolationItem _sekkeiZutoKotonaru = ViolationItem('提出した設計図と異なる構造で制作', 20);
+  static const ViolationItem _kyokaNashiPoleIgai = ViolationItem('許可なしにポール以外の支柱を使用', 17, tags: ['15役']);
+  static const ViolationItem _rokaHamiDashi = ViolationItem('廊下へ30㎝以上はみ出した制作', 5, tags: ['建築物']);
+  static const ViolationItem _kaijoJiniNyujoFukano = ViolationItem('会場時に来場者が入場できない状態', 5);
+
   @override
   void initState() {
     super.initState();
@@ -326,8 +378,55 @@ class _HomeScreenState extends State<HomeScreen>
           }
           return data;
         }).toList();
+        
+        _precalculateTabData();
       });
     }, onError: (e) => debugPrint('Firestoreエラー: $e'));
+  }
+
+  // データを事前に計算してビルド時の負荷を減らす
+  void _precalculateTabData() {
+    for (int i = 0; i < 4; i++) {
+      _filteredPostsCache[i] = [];
+      _classTotalsCache[i] = {for (var k = 1; k <= 9; k++) k: 0};
+      _archivedClassTotalsCache[i] = {for (var k = 1; k <= 9; k++) k: 0};
+    }
+
+    for (var post in _posts) {
+      final String postClass = (post['class']?.toString() ?? '').trim();
+      final int points = int.tryParse(post['deductionPoints']?.toString() ?? '0') ?? 0;
+      
+      for (int tabIndex = 0; tabIndex < 4; tabIndex++) {
+        // タブごとの学年フィルタ
+        if (tabIndex > 0) {
+          if (!postClass.startsWith('${tabIndex}年')) continue;
+          
+          // クラス集計
+          final match = _classRegex.firstMatch(postClass);
+          if (match != null) {
+            final classNum = int.tryParse(match.group(1)!);
+            if (classNum != null) {
+              final bool isHidden = post['isHidden'] ?? false;
+              final bool isDeduction = post['discussionStatus'] == 'deduction';
+
+              if (!isHidden && !isDeduction) {
+                // 有効な減点を集計
+                if (_classTotalsCache[tabIndex].containsKey(classNum)) {
+                  _classTotalsCache[tabIndex][classNum] = (_classTotalsCache[tabIndex][classNum] ?? 0) + points;
+                }
+              } else {
+                // 取り消し・審議中の減点を集計
+                if (_archivedClassTotalsCache[tabIndex].containsKey(classNum)) {
+                  _archivedClassTotalsCache[tabIndex][classNum] = (_archivedClassTotalsCache[tabIndex][classNum] ?? 0) + points;
+                }
+              }
+            }
+          }
+        }
+        
+        _filteredPostsCache[tabIndex].add(post);
+      }
+    }
   }
 
   void _deletePost(Map<String, dynamic> item) {
@@ -359,119 +458,401 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   void _toggleHidePost(Map<String, dynamic> item) async {
-    if (item['isHidden'] == true) {
-      // すでに非表示の場合は、単に表示に戻す
-      final TextEditingController restoreReasonController = TextEditingController();
-      final bool? confirm = await showDialog<bool>(
+    final bool isDeductionState = item['discussionStatus'] == 'deduction';
+    final List<String> tagOptions = [
+      '中村', '本田', '中谷内', '若田',
+      '小林', '黒瀬', '田島', '今井',
+      '福田', '赤塚', '大石', '上野',
+      '長窪', '曽根', '間瀬', '花植'
+    ];
+    List<String> selectedTags = [];
+    bool isUploading = false;
+
+    final TextEditingController reasonController = TextEditingController(text: item['restoreReason'] ?? '');
+    if (isDeductionState) {
+      // 「口頭可能」タグがついている場合の最終判断ダイアログ
+      await showDialog(
         context: context,
+        barrierDismissible: false,
         builder: (BuildContext context) {
-          return AlertDialog(
-            content: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text('この減点取り消しを無効にして、減点を復元しますか?'),
-                const SizedBox(height: 16),
-                TextFormField(
-                  controller: restoreReasonController,
-                  decoration: const InputDecoration(labelText: '弁明を受け付けた人は誰ですか？', border: OutlineInputBorder()),
-                  maxLines: 3,
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('議論結果の最終判断'),
+                content: SingleChildScrollView( // スクロール可能にする
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (isUploading) const Padding(padding: EdgeInsets.only(bottom: 16), child: CircularProgressIndicator()),
+                      const Text('この項目の最終的な扱いを選択してください。'),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: reasonController,
+                        decoration: const InputDecoration(labelText: '最終判断・理由など', border: OutlineInputBorder()),
+                        maxLines: 2,
+                      ),
+                      const SizedBox(height: 16),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('タグ選択 (5つ以上選択してください):', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: tagOptions.map((tag) {
+                          final isSelected = selectedTags.contains(tag);
+                          return FilterChip(
+                            label: Text(tag, style: const TextStyle(fontSize: 11)),
+                            selected: isSelected,
+                            onSelected: isUploading ? null : (bool selected) {
+                              setDialogState(() {
+                                if (selected) {
+                                  selectedTags.add(tag);
+                                } else {
+                                  selectedTags.remove(tag);
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
                 ),
-              ],
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context, false),
-                child: const Text('キャンセル'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('復元'),
-              ),
-            ],
+                actions: [
+                  TextButton(onPressed: isUploading ? null : () => Navigator.pop(context), child: const Text('キャンセル')),
+                  ElevatedButton(
+                    onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                      setDialogState(() => isUploading = true);
+                      try {
+                        await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
+                          'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
+                          'isHidden': false, // ホーム画面に表示
+                          'discussionStatus': 'finalized', // 「口頭可能」タグを消す(確定状態)
+                          'isHidden': true, // 「取り消した減点」タブへ
+                          'discussionStatus': 'finalized', // タグを消す
+                          'isHidden': true, // アーカイブに表示
+                          'discussionStatus': 'finalized', // タグを非表示にする
+                          'cancellationTags': selectedTags,
+                          'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
+                          'statusHistory': FieldValue.arrayUnion([{
+                            'type': 'cancelled', // 取り消し確定
+                            'timestamp': DateTime.now().toIso8601String(),
+                            'reason': '減点取り消し確定: ${selectedTags.join(", ")} ${reasonController.text}',
+                          }]),
+                        });
+                        if (context.mounted) Navigator.pop(context);
+                      } catch (_) {
+                        setDialogState(() => isUploading = false);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.grey, foregroundColor: Colors.white),
+                    child: const Text('減点取り消し'),
+                  ),
+                  ElevatedButton(
+                    onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                      setDialogState(() => isUploading = true);
+                      try {
+                        await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
+                          'isHidden': true, // 「取り消した減点」タブへ移動
+                          'discussionStatus': 'cancelled', // 「口頭可能」タグを表示
+                          'cancellationTags': selectedTags,
+                          'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
+                          'statusHistory': FieldValue.arrayUnion([{
+                            'type': 'finalized_deduction',
+                            'timestamp': DateTime.now().toIso8601String(),
+                            'reason': '減点確定(口頭可能): ${selectedTags.join(", ")} ${reasonController.text}',
+                          }]),
+                        });
+                        if (context.mounted) Navigator.pop(context);
+                      } catch (_) {
+                        setDialogState(() => isUploading = false);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+                  child: const Text('減点'),
+                  ),
+                ],
+              );
+            },
           );
         },
       );
+      reasonController.dispose();
+      return;
+    }
 
-      if (confirm != true) {
-        restoreReasonController.dispose(); // キャンセル時はコントローラを破棄
-        return;
-      }
-
-      // Firestoreのデータを更新
-      final Map<String, dynamic> updateData = {
-        'isHidden': false,
-      };
-      if (restoreReasonController.text.isNotEmpty) {
-        updateData['restoreReason'] = restoreReasonController.text;
-      } else {
-        updateData['restoreReason'] = FieldValue.delete(); // 理由が空ならフィールドも削除
-      }
-      await FirebaseFirestore.instance.collection('posts').doc(item['id']).update(updateData);
-      restoreReasonController.dispose(); // 使用後はコントローラを破棄
-      
+    // If the post is already hidden (yellow tag or cancelled)
+    if (item['isHidden'] == true) {
+      final TextEditingController reasonController = TextEditingController(text: item['restoreReason'] ?? '');
+      // すでに非表示の場合は、単に表示に戻す
+      await showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return StatefulBuilder(
+            builder: (context, setDialogState) {
+              return AlertDialog(
+                title: const Text('減点処理の選択'), // タイトル変更
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (isUploading) const Padding(padding: EdgeInsets.only(bottom: 16), child: CircularProgressIndicator()),
+                      const Text('この項目に対する対応を選択してください。'),
+                      const SizedBox(height: 16),
+                      TextFormField(
+                        controller: reasonController,
+                        decoration: const InputDecoration(labelText: '議論結果・担当者など', border: OutlineInputBorder()),
+                        maxLines: 2, // 複数行入力可能
+                      ),
+                      const SizedBox(height: 16),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('タグ選択 (5つ以上選択してください):', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: tagOptions.map((tag) {
+                          final isSelected = selectedTags.contains(tag);
+                          return FilterChip(
+                            label: Text(tag, style: const TextStyle(fontSize: 11)),
+                            selected: isSelected,
+                            onSelected: isUploading ? null : (bool selected) {
+                              setDialogState(() {
+                                if (selected) {
+                                  selectedTags.add(tag);
+                                } else {
+                                  selectedTags.remove(tag);
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(onPressed: isUploading ? null : () => Navigator.pop(context), child: const Text('キャンセル')),
+                  ElevatedButton(
+                    onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                      setDialogState(() => isUploading = true);
+                      try {
+                        await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
+                          'isHidden': true,
+                          'discussionStatus': 'finalized',
+                          'discussionTimestamp': FieldValue.delete(),
+                          'cancellationTags': selectedTags,
+                          'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
+                          'statusHistory': FieldValue.arrayUnion([{
+                            'type': 'cancelled',
+                            'timestamp': DateTime.now().toIso8601String(),
+                            'reason': '減点取り消し確定: ${selectedTags.join(", ")} ${reasonController.text}',
+                          }]),
+                        });
+                        if (context.mounted) Navigator.pop(context);
+                      } catch (_) {
+                        setDialogState(() => isUploading = false);
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.grey, foregroundColor: Colors.white),
+                    child: const Text('減点取り消し'),
+                  ),
+                  ElevatedButton(
+                    onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                      setDialogState(() => isUploading = true);
+                      try {
+                        await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
+                          'isHidden': false, // ホーム画面へ
+                          'discussionStatus': 'finalized', // タグを表示しない
+                          'cancellationTags': selectedTags,
+                          'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
+                          'statusHistory': FieldValue.arrayUnion([{
+                            'type': 'finalized_deduction', // 減点確定（アイコン非表示用）
+                            'timestamp': DateTime.now().toIso8601String(),
+                            'reason': '減点確定: ${selectedTags.join(", ")} ${reasonController.text}',
+                          }]),
+                        });
+                        if (context.mounted) Navigator.pop(context);
+                      } catch (_) {
+                        setDialogState(() => isUploading = false);
+                      }
+                    }, // 「減点取り消し」ボタンのロジック
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.red, foregroundColor: Colors.white),
+                    child: const Text('減点'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+      reasonController.dispose();
       return;
     }
 
     // 非表示にする際の画像選択ダイアログ
     Uint8List? tempBytes;
+
     await showDialog(
-      context: context,
+      context: context, // コンテキスト
+      barrierDismissible: false, // アップロード中の誤操作を防止
       builder: (BuildContext context) {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
               title: const Text('減点取り消し'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('弁明書の写真を添付してください'),
-                  const SizedBox(height: 16),
-                  if (tempBytes != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Image.memory(tempBytes!, height: 150, fit: BoxFit.cover),
-                    ),
-                  OutlinedButton.icon(
-                    onPressed: () async {
-                      final XFile? pickedFile = await _picker.pickImage(
-                        source: ImageSource.gallery,
-                        maxWidth: 800,
-                        maxHeight: 800,
-                        imageQuality: 50,
-                      );
-                      if (pickedFile != null) {
-                        final bytes = await pickedFile.readAsBytes();
-                        setDialogState(() => tempBytes = bytes);
-                      }
-                    },
-                    icon: const Icon(Icons.add_a_photo_outlined),
-                    label: const Text('写真を選択'),
+              content: SizedBox(
+                width: double.maxFinite,
+                child: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (isUploading)
+                        const Padding(padding: EdgeInsets.only(bottom: 16), child: CircularProgressIndicator()),
+                      TextFormField(
+                        controller: reasonController, // 理由入力コントローラ
+                        decoration: const InputDecoration(
+                          labelText: '取り消し理由・記入欄',
+                          border: OutlineInputBorder(),
+                        ),
+                        maxLines: 2,
+                      ),
+                      const SizedBox(height: 16),
+                      const Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text('タグ選択 (5つ以上選択してください):', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                      ),
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 4,
+                        children: tagOptions.map((tag) {
+                          final isSelected = selectedTags.contains(tag);
+                          return FilterChip(
+                            label: Text(tag, style: const TextStyle(fontSize: 11)),
+                            selected: isSelected,
+                            onSelected: isUploading ? null : (bool selected) {
+                              setDialogState(() {
+                                if (selected) {
+                                  selectedTags.add(tag);
+                                } else {
+                                  selectedTags.remove(tag);
+                                }
+                              });
+                            },
+                          );
+                        }).toList(),
+                      ),
+                      const SizedBox(height: 16),
+                      // 以前の画像選択部分をここに移動
+                      const Text('弁明書の写真を添付してください'),
+                      const SizedBox(height: 12),
+                      if (tempBytes != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: Image.memory(tempBytes!, height: 120, fit: BoxFit.cover),
+                        ),
+                      OutlinedButton.icon(
+                        onPressed: isUploading ? null : () async {
+                          final XFile? pickedFile = await _picker.pickImage(
+                            source: ImageSource.gallery,
+                            maxWidth: 800,
+                            maxHeight: 800,
+                            imageQuality: 50,
+                          );
+                          if (pickedFile != null) {
+                            final bytes = await pickedFile.readAsBytes();
+                            setDialogState(() => tempBytes = bytes);
+                          }
+                        },
+                        icon: const Icon(Icons.add_a_photo_outlined),
+                        label: const Text('写真を選択'),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
               actions: [
                 TextButton(
-                  onPressed: () => Navigator.pop(context),
+                  onPressed: isUploading ? null : () => Navigator.pop(context),
                   child: const Text('キャンセル'),
                 ),
                 ElevatedButton(
-                  onPressed: () async {
+                  onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                    setDialogState(() => isUploading = true);
+                    try {
+                      String hiddenImageUrl = '';
+                      if (tempBytes != null) {
+                        final ref = FirebaseStorage.instance
+                            .ref()
+                            .child('hidden_reasons/${DateTime.now().millisecondsSinceEpoch}.jpg');
+                        await ref.putData(tempBytes!);
+                        hiddenImageUrl = await ref.getDownloadURL();
+                      }
+                      await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
+                        'isHidden': true, // アーカイブに表示
+                        'discussionStatus': 'finalized', // タグを非表示にする
+                        'hiddenReasonImage': hiddenImageUrl.isNotEmpty ? hiddenImageUrl : FieldValue.delete(), // 弁明書写真
+                        'cancellationTags': selectedTags,
+                        'restoreReason': reasonController.text,
+                        'statusHistory': FieldValue.arrayUnion([{
+                          'type': 'cancelled',
+                          'timestamp': DateTime.now().toIso8601String(),
+                          'reason': '減点取り消し確定: ${selectedTags.join(", ")} ${reasonController.text}',
+                        }]),
+                      });
+                      if (context.mounted) Navigator.pop(context);
+                    } catch (e) {
+                      setDialogState(() => isUploading = false);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.grey, foregroundColor: Colors.white),
+                  child: const Text('減点取り消し'),
+                ),
+                ElevatedButton(
+                  onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                    setDialogState(() => isUploading = true);
+                    try {
                     String hiddenImageUrl = '';
                     if (tempBytes != null) {
                       final ref = FirebaseStorage.instance
                           .ref()
                           .child('hidden_reasons/${DateTime.now().millisecondsSinceEpoch}.jpg');
-                      await ref.putData(tempBytes!);
+                      // tempBytes が null でないことを確認
+                      if (tempBytes != null) await ref.putData(tempBytes!);
                       hiddenImageUrl = await ref.getDownloadURL();
                     }
                     // Firestoreのデータを更新
                     await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
-                      'isHidden': true,
+                      'isHidden': true, // 「取り消した減点」タブへ移動
+                      'discussionStatus': 'cancelled', // 「口頭可能」タグを表示
                       'hiddenReasonImage': hiddenImageUrl,
+                      'cancellationTags': selectedTags,
+                      'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
+                      'statusHistory': FieldValue.arrayUnion([{
+                        'type': 'finalized_deduction',
+                        'timestamp': DateTime.now().toIso8601String(),
+                        'reason': '減点確定(口頭可能): ${selectedTags.join(", ")} ${reasonController.text}',
+                      }]),
                     });
-                    Navigator.pop(context);
+                    if (context.mounted) Navigator.pop(context);
+                    } catch (e) {
+                      debugPrint('取り消しエラー: $e');
+                      setDialogState(() => isUploading = false);
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('エラーが発生しました。通信環境を確認して再度お試しください。')),
+                        );
+                      }
+                    }
                   },
-                  child: const Text('減点を取り消しする'),
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+                  child: const Text('減点'),
                 ),
               ],
             );
@@ -501,17 +882,52 @@ class _HomeScreenState extends State<HomeScreen>
         imageUrl = await ref.getDownloadURL();
       }
 
-      // Firestoreに新規追加
-      await FirebaseFirestore.instance.collection('posts').add({
-        'class': '$_selectedValue1年$_selectedValue2組',
-        'deductionPoints': _selectedDeductionPoints.toString(),
-        'deductionReason': _selectedDeductionReason,
-        'remarks': _remarksController.text,
-        'imagePath': imageUrl,
-        'timestamp': DateTime.now().toIso8601String(),
-        'name': widget.username,
-        'isHidden': false,
-      });
+      // トランザクションを使用して、番号の重複を防ぎながら投稿
+      try {
+        await FirebaseFirestore.instance.runTransaction((transaction) async {
+          // 1. カウンター用のドキュメント(metadata/postCounter)を参照
+          // ※事前にFirestoreコンソールで metadata コレクションに postCounter ドキュメントを作り、
+          //  { "current": 10 } (現在の最大番号) のようにデータを入れておくとスムーズです。
+          final counterRef = FirebaseFirestore.instance.collection('metadata').doc('postCounter');
+          final counterSnapshot = await transaction.get(counterRef);
+
+          int nextNumber = 1;
+          if (counterSnapshot.exists) {
+            nextNumber = (counterSnapshot.data() as Map<String, dynamic>)['current'] + 1;
+          } else {
+            // 初回などカウンターがない場合、1から開始(既存データがある場合は手動でカウンター作成を推奨)
+            nextNumber = 1;
+          }
+
+          // 2. カウンターを更新(他の人がこの間に割り込めないようロックされます)
+          transaction.set(counterRef, {'current': nextNumber}, SetOptions(merge: true));
+
+          // 3. 投稿ドキュメントを作成
+          final newPostRef = FirebaseFirestore.instance.collection('posts').doc();
+          transaction.set(newPostRef, {
+            'class': '$_selectedValue1年$_selectedValue2組',
+            'deductionPoints': _selectedDeductionPoints.toString(),
+            'deductionReason': _selectedDeductionReason,
+            'remarks': _remarksController.text,
+            'imagePath': imageUrl,
+            'postNumber': nextNumber, // 確定した番号を保存
+            'timestamp': DateTime.now().toIso8601String(),
+            'name': widget.username,
+            'isHidden': false,
+            'statusHistory': [
+              {'type': 'created', 'timestamp': DateTime.now().toIso8601String(), 'reason': '新規減点登録'}
+            ],
+          });
+        });
+      } catch (e) {
+        debugPrint('投稿エラー (トランザクション): $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('投稿に失敗しました。もう一度お試しください。')),
+          );
+        }
+        return;
+      }
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -648,63 +1064,70 @@ class _HomeScreenState extends State<HomeScreen>
   static final RegExp _classRegex = RegExp(r'(\d+)組');
 
   Widget _buildTabContent({required bool isPostForm, required int tabIndex}) {
-    // 表示用データの準備
-    // メモ: categoriesのソートは本来State更新時に行うのが理想ですが、
-    // ここではまず計算量を減らすために、必要なリスト作成を効率化します。
     final List<ViolationCategory> categories = _getViolationData(_selectedValue1);
-    if (_violationUsageCounts.isNotEmpty) {
-      // 簡易的な並び替えに留めるか、頻繁に変わらないならそのままにする
-    }
 
-    final List<Map<String, dynamic>> displayedPosts = [];
-    final Map<int, int> classTotals = {};
-    if (tabIndex > 0) {
-      for (int i = 1; i <= 9; i++) classTotals[i] = 0;
-    }
+    // 事前計算済みのデータを使用
+    final List<Map<String, dynamic>> sourcePosts = _filteredPostsCache[tabIndex];
+    final Map<int, int> classTotals = _showHiddenOnly ? _archivedClassTotalsCache[tabIndex] : _classTotalsCache[tabIndex];
 
-    // 1回のループで番号付け、フィルタリング、集計を同時に行う (高速化)
-    final String? targetYear = tabIndex > 0 ? '${tabIndex}年' : null;
     final activeFilter = _gradeClassFilters[tabIndex];
     final String? tabClassFilter = (tabIndex > 0 && activeFilter != null) 
         ? '${tabIndex}年${activeFilter}組' : null;
     
-    // 比較用ターゲットをクリーンアップ
-    final String? cleanTargetYear = targetYear?.trim();
+    final List<Map<String, dynamic>> displayedPosts = [];
+    for (var post in sourcePosts) {
+      final bool isHidden = post['isHidden'] ?? false;
+      final bool isDeduction = post['discussionStatus'] == 'deduction';
+      final String? status = post['discussionStatus'];
 
-    for (int i = 0; i < _posts.length; i++) {
-      final post = _posts[i];
-      
-      // 基本条件(取り消し済みかどうか)
-      if ((post['isHidden'] ?? false) != _showHiddenOnly) continue;
-
-      // タブごとの条件
-      final String postClass = (post['class']?.toString() ?? '').trim();
-      if (cleanTargetYear != null && !postClass.startsWith(cleanTargetYear)) continue;
-
-      final int postNo = _posts.length - i;
-
-      // 集計
-      final int points = int.tryParse(post['deductionPoints']?.toString() ?? '0') ?? 0;
-      if (tabIndex > 0) {
-        final String? classStr = post['class']?.toString();
-        if (classStr != null) {
-          final match = _classRegex.firstMatch(classStr);
-          if (match != null) {
-            final classNum = int.tryParse(match.group(1)!);
-            if (classNum != null && classTotals.containsKey(classNum)) {
-              classTotals[classNum] = classTotals[classNum]! + points;
-            }
+      // 「口頭可能」状態で3営業日経過したか判定
+      bool isOralPossibleExpired = false;
+      if (isHidden && status == null) {
+        // 黄色タグの「口頭可能」(旧:未議論)
+        final List<dynamic> history = post['statusHistory'] ?? [];
+        try {
+          final archiveEvent = history.reversed.firstWhere((e) => e is Map && e['type'] == 'archived_undiscussed', orElse: () => null);
+          if (archiveEvent != null && archiveEvent['timestamp'] != null) {
+            final dt = DateTime.parse(archiveEvent['timestamp']);
+            isOralPossibleExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1)));
           }
+        } catch (_) {}
+      } else if (status == 'cancelled') {
+        final List<dynamic> history = post['statusHistory'] ?? [];
+        try {
+          // イエロータグの状態は「減点確定(口頭可能)」イベントが起点
+          final cancelEvent = history.reversed.firstWhere((e) => e is Map && e['type'] == 'finalized_deduction', orElse: () => null);
+          if (cancelEvent != null && cancelEvent['timestamp'] != null) {
+            final dt = DateTime.parse(cancelEvent['timestamp']);
+            isOralPossibleExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1)));
+          }
+        } catch (_) {}
+      } else if (isDeduction) {
+        // 赤色タグの「口頭可能(審議中)」
+        if (post['discussionTimestamp'] != null) {
+          try {
+            final dt = DateTime.parse(post['discussionTimestamp']);
+            isOralPossibleExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1)));
+          } catch (_) {}
         }
       }
 
-      // リスト表示用の絞り込み(集計には含めるがリストからは外す場合)
-      if (tabClassFilter != null && postClass != tabClassFilter) continue;
+      if (_showHiddenOnly) {
+        // 「取り消した減点」タブ:期限切れの口頭可能はホームに戻るため、ここでは除外
+        if ((!isHidden && !isDeduction) || isOralPossibleExpired) continue;
+      } else {
+        // メインタブ:通常表示分 + 期限切れの口頭可能を表示
+        if ((isHidden || isDeduction) && !isOralPossibleExpired) continue;
+      }
 
-    // 表示用データを作成(元のデータを汚染しないようコピーを作成)
-    final decoratedPost = Map<String, dynamic>.from(post);
-    decoratedPost['_uiNumber'] = postNo;
-    displayedPosts.add(decoratedPost);
+      if (tabClassFilter != null && post['class'] != tabClassFilter) continue;
+      
+      // 表示用の番号を割り振る(元のリストでの位置に基づく)
+      final decoratedPost = Map<String, dynamic>.from(post);
+      // ナンバリングをリスト全体での位置から計算(最新の投稿が最大件数になるように)
+      decoratedPost['_uiNumber'] = _posts.length - _posts.indexOf(post);
+      decoratedPost['_isOralPossibleExpired'] = isOralPossibleExpired; // 判定結果を保持
+      displayedPosts.add(decoratedPost);
     }
 
     // 並び替え (null安全な比較に修正)
@@ -751,7 +1174,7 @@ class _HomeScreenState extends State<HomeScreen>
                           const Spacer(),
                           Icon(
                             _isPostFormExpanded ? Icons.expand_less : Icons.expand_more,
-                            color: Colors.grey,
+                              color: const Color(0xFF9E9E9E),
                           ),
                         ],
                       ),
@@ -864,7 +1287,7 @@ class _HomeScreenState extends State<HomeScreen>
                         width: double.infinity,
                         padding: const EdgeInsets.all(4),
                         decoration: BoxDecoration(
-                          color: const Color.fromARGB(255, 232, 241, 252), // ← 1. セグメント全体の背景色（後ろの色）
+                          color: const Color.fromARGB(255, 232, 241, 252), // ← 1. セグメント全体の背景色(後ろの色)
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Row(
@@ -1015,7 +1438,7 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                           ),
                           ElevatedButton.icon(
-                            onPressed: _submitPost,
+                            onPressed: _selectedViolation == null ? null : _submitPost,
                             icon: const Icon(Icons.send),
                             label: const Text('登録する'),
                             style: ElevatedButton.styleFrom(
@@ -1157,11 +1580,65 @@ class _HomeScreenState extends State<HomeScreen>
     final int postNumber = item['_uiNumber'] ?? 0;
     final Uint8List? cachedBytes = item['_cachedUint8List'] as Uint8List?;
 
+    final List<dynamic> history = item['statusHistory'] ?? [];
+    // 「減点確定」の履歴がある場合は最終状態とみなす (取消は戻せるようにする)
+    final bool isFinalized = history.any((e) => e is Map && e['type'] == 'finalized_deduction');
+    final bool isOralPossibleExpired = item['_isOralPossibleExpired'] == true;
+
+    final String? status = item['discussionStatus'];
+    final bool isDeduction = status == 'deduction'; // 口頭可能(審議中)
+    bool isDeductionExpired = false;
+    if (isDeduction && item['discussionTimestamp'] != null) {
+      try {
+        final dt = DateTime.parse(item['discussionTimestamp']);
+        isDeductionExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1))); // 3営業日経過後に期限切れ
+      } catch (_) {}
+    }
+
+    // 3日以内の投稿かどうか判定(ナンバリングの色用)
+    final String timestampStr = item['timestamp'] ?? '';
+    bool isRecent = false;
+    if (timestampStr.isNotEmpty) {
+      try {
+        final DateTime timestamp = DateTime.parse(timestampStr);
+        isRecent = DateTime.now().isBefore(addWorkingDays(timestamp, 3).add(const Duration(days: 1))); // 3営業日以内なら最近の投稿
+      } catch (_) {}
+    }
+    
+    // 「減点取り消し」後は3日経った投稿と同じ色(黒)にする
+    final bool isCancelled = status == 'cancelled';
+    // 最終確定済み、または未議論でホームに戻った投稿は灰色にする
+    final Color numberingColor = (isFinalized || isOralPossibleExpired) ? Colors.grey : ((isRecent && !isCancelled) ? Colors.pink : Colors.black87);
+
+    // アイコン表示条件:
+    // 表示しない条件: 口頭可能期限切れ -> !isOralPossibleExpired
+    // 表示する条件のいずれか:
+    //  - 非表示かつ未議論 (口頭可能: 黄)
+    //  - 審議後の取消済み (status == 'cancelled')
+    //  - 口頭可能で審議中 (isDeduction && !isDeductionExpired)
+    //  - 確定前かつ通常の投稿 (未処理のホーム投稿)
+    final bool showToggleIcon = !isOralPossibleExpired && (
+      (item['isHidden'] == true && status == null) || // 口頭可能 (黄 - 未議論)
+      (status == 'cancelled') || // 口頭可能 (黄 - 審議後)
+      (isDeduction && !isDeductionExpired) || // 口頭可能(審議中) (赤)
+      (!isFinalized && item['isHidden'] == false && status == null) // 通常の投稿 (ホーム)
+    );
+
+    // アイコンとツールチップのテキストを決定
+    IconData toggleIconData = Icons.undo;
+    String toggleTooltipText = '減点を取り消す'; // デフォルト
+    if (item['isHidden'] == true && (status == null || status == 'finalized')) { toggleIconData = Icons.restore; toggleTooltipText = '減点を戻す'; }
+    if (status == 'cancelled' || (item['isHidden'] == true && status == null)) { 
+      toggleIconData = Icons.restore; 
+      toggleTooltipText = '減点を戻す'; 
+    }
+    else if (isDeduction) { toggleTooltipText = '議論結果を入力'; }
+
     if (_isLargeImageMode && imagePath.isNotEmpty) {
       return Card(
         clipBehavior: Clip.antiAlias,
         color: Colors.white,
-        elevation: 1, // 控えめな影
+        elevation: 1.0, // 控えめな影
         margin: const EdgeInsets.only(bottom: 16),
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12),
@@ -1185,9 +1662,18 @@ class _HomeScreenState extends State<HomeScreen>
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text(
-                          'No. $postNumber  ${item['class']}',
-                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        Row(
+                          children: [
+                            Text(
+                              'No. $postNumber  ${item['class']}',
+                              style: TextStyle(
+                                fontWeight: FontWeight.bold,
+                                fontSize: 16,
+                                color: numberingColor,
+                              ),
+                            ),
+                            _buildStatusTag(item, isRecent),
+                          ],
                         ),
                         Row(
                           children: [
@@ -1202,12 +1688,12 @@ class _HomeScreenState extends State<HomeScreen>
                               style: const TextStyle(fontSize: 12, color: Colors.grey),
                             ),
                             const SizedBox(width: 8),
-                            IconButton(
-                              visualDensity: VisualDensity.compact,
-                              icon: Icon(item['isHidden'] == true ? Icons.restore : Icons.undo, size: 20, color: Colors.grey),
-                              onPressed: () => _toggleHidePost(item),
-                              tooltip: item['isHidden'] == true ? '減点を戻す' : '減点を取り消す',
-                            ),
+                            if (showToggleIcon)
+                              IconButton(
+                                icon: Icon(toggleIconData, size: 20, color: Colors.grey),
+                                onPressed: () => _toggleHidePost(item),
+                                tooltip: toggleTooltipText,
+                              ),
                             IconButton(
                               visualDensity: VisualDensity.compact,
                               icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
@@ -1230,7 +1716,7 @@ class _HomeScreenState extends State<HomeScreen>
     return Card(
       color: Colors.white,
       elevation: 1, // 控えめな影
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 12), // Already const
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(12),
       ),
@@ -1241,7 +1727,7 @@ class _HomeScreenState extends State<HomeScreen>
           children: [
             Text(
               '$postNumber',
-              style: const TextStyle(color: Colors.grey, fontSize: 12),
+              style: TextStyle(color: numberingColor, fontSize: 12),
             ),
             const SizedBox(width: 8),
             ClipRRect(
@@ -1253,9 +1739,14 @@ class _HomeScreenState extends State<HomeScreen>
         title: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              '${item['class']}',
-              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+            Row(
+              children: [
+                Text(
+                  '${item['class']}',
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 17),
+                ),
+                _buildStatusTag(item, isRecent),
+              ],
             ),
             Text(
               item['timestamp'] != null
@@ -1276,11 +1767,12 @@ class _HomeScreenState extends State<HomeScreen>
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            IconButton(
-              icon: Icon(item['isHidden'] == true ? Icons.restore : Icons.undo, color: Colors.grey),
-              onPressed: () => _toggleHidePost(item),
-              tooltip: item['isHidden'] == true ? '減点を戻す' : '減点を取り消す',
-            ),
+            if (showToggleIcon)
+              IconButton( // アイコン表示
+                icon: Icon(toggleIconData, color: Colors.grey),
+                onPressed: () => _toggleHidePost(item),
+                tooltip: toggleTooltipText,
+              ),
             IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.grey),
               onPressed: () => _deletePost(item),
@@ -1307,7 +1799,7 @@ class _HomeScreenState extends State<HomeScreen>
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
               decoration: BoxDecoration(
-                color: Colors.red[50],
+                color: const Color(0xFFFFE5E5),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Text(
@@ -1353,18 +1845,31 @@ class _HomeScreenState extends State<HomeScreen>
           horizontalMargin: 12, // 端の余白を詰める
           headingRowHeight: 44,
           columns: const [
-            DataColumn(label: Text('No', style: TextStyle(fontWeight: FontWeight.bold)), numeric: true),
-            DataColumn(label: Text('クラス', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('点数', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('理由', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('名前', style: TextStyle(fontWeight: FontWeight.bold))),
-            DataColumn(label: Text('日時', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: const Text('No', style: TextStyle(fontWeight: FontWeight.bold)), numeric: true),
+            DataColumn(label: const Text('日時', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: const Text('クラス', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: const Text('点数', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: const Text('理由', style: TextStyle(fontWeight: FontWeight.bold))),
+            DataColumn(label: const Text('名前', style: TextStyle(fontWeight: FontWeight.bold))),
           ],
           rows: List<DataRow>.generate(displayedPosts.length, (index) {
             final item = displayedPosts[index];
+
+            // 表形式の方でも3日以内判定を行う
+            final String timestampStr = item['timestamp'] ?? '';
+            bool isRecent = false;
+            if (timestampStr.isNotEmpty) {
+              try {
+                final DateTime timestamp = DateTime.parse(timestampStr);
+                isRecent = DateTime.now().isBefore(addWorkingDays(timestamp, 3).add(const Duration(days: 1)));
+              } catch (_) {}
+            }
+
+            final bool isFinalized = (item['statusHistory'] as List<dynamic>?)?.any((e) => e is Map && e['type'] == 'finalized_deduction') ?? false;
+
             return DataRow(
               cells: [
-                DataCell(Text('${item['_uiNumber'] ?? 0}'), 
+                DataCell(Text('${item['_uiNumber'] ?? 0}', style: TextStyle(color: isFinalized ? Colors.grey : (isRecent ? Colors.pink : Colors.black87))), 
                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
                 DataCell(
                   Text(item['timestamp'] != null
@@ -1510,8 +2015,9 @@ class _HomeScreenState extends State<HomeScreen>
     final double iconSize = size ?? 40; // デフォルトのアイコンサイズ
     try {
       final bool isNetwork = imagePath.startsWith('http');
-      final int? cacheW = (w != null && w > 0 && w.isFinite) ? (w * 2.0).toInt() : null;
-      final int? cacheH = (h != null && h > 0 && h.isFinite) ? (h * 2.0).toInt() : null;
+      // キャッシュサイズが0以下になるとエラーになるため、1以上の整数になる場合のみ値を設定します
+      final int? cacheW = (w != null && w > 0 && w.isFinite && (w * 2.0).toInt() > 0) ? (w * 2.0).toInt() : null;
+      final int? cacheH = (h != null && h > 0 && h.isFinite && (h * 2.0).toInt() > 0) ? (h * 2.0).toInt() : null;
 
       return RepaintBoundary(
         child: isNetwork
@@ -1528,7 +2034,7 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  // メソッドを独立させる（構文エラーの修正）
+  // メソッドを独立させる(構文エラーの修正)
   Widget _buildMemoryImage(String imagePath, Uint8List? fallbackBytes, double? w, double? h, int? cacheW, int? cacheH, double iconSize) {
     // fallbackBytesがあればデコード不要
     final bytes = fallbackBytes ?? (imagePath.length > 50 ? base64Decode(imagePath) : null);
@@ -1539,12 +2045,46 @@ class _HomeScreenState extends State<HomeScreen>
       width: w, height: h, fit: BoxFit.cover,
       filterQuality: FilterQuality.low,
       gaplessPlayback: true,
-      cacheWidth: (cacheW != null && cacheW > 0) ? cacheW : null,
-      cacheHeight: (cacheH != null && cacheH > 0) ? cacheH : null,
+      cacheWidth: cacheW,
+      cacheHeight: cacheH,
       errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize),
     );
   }
-} // _HomeScreenState を閉じるカッコ（重要）
+
+  Widget _buildStatusTag(Map<String, dynamic> item, bool isRecent) {
+    final String? status = item['discussionStatus'];
+    final bool isHidden = item['isHidden'] == true;
+
+    final bool isOralPossibleExpired = item['_isOralPossibleExpired'] == true;
+
+    if (status == 'deduction' && !isOralPossibleExpired) { // 期限切れでない口頭可能
+      // 3日経過していたらタグを出さない
+      return _tagWidget('口頭可能', Colors.red, Colors.white);
+    } else if (status == 'finalized') {
+      return const SizedBox.shrink();
+    } else if ((status == 'cancelled' || (isHidden && status == null)) && !isOralPossibleExpired) {
+      // 口頭可能(旧:未議論)かつ期限切れでない場合のみタグを表示
+      return _tagWidget('口頭可能', Colors.yellow, Colors.black87);
+    }
+    // それ以外はタグを表示しない
+    return const SizedBox.shrink();
+  }
+
+  Widget _tagWidget(String text, Color color, Color textColor) {
+    return Container(
+      margin: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold, color: textColor),
+      ),
+    );
+  }
+} // _HomeScreenState を閉じるカッコ(重要)
 
 class _SectionHeader extends StatelessWidget {
   final IconData icon;
