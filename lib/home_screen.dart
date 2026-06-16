@@ -67,6 +67,7 @@ class _HomeScreenState extends State<HomeScreen>
   StreamSubscription? _postsSubscription; // リアルタイム更新の購読
   int _selectedValue1 = 1;
   String _selectedValue2 = '1';
+  bool _isPosting = false; // 投稿中かどうかを管理するフラグ
   Uint8List? _imageBytes; // 画像データを保持
   final ImagePicker _picker = ImagePicker();
   TabController? _tabController; // late を削除し、nullable に変更
@@ -468,7 +469,7 @@ class _HomeScreenState extends State<HomeScreen>
     List<String> selectedTags = [];
     bool isUploading = false;
 
-    final TextEditingController reasonController = TextEditingController(text: item['restoreReason'] ?? '');
+    final TextEditingController reasonController = TextEditingController();
     if (isDeductionState) {
       // 「口頭可能」タグがついている場合の最終判断ダイアログ
       await showDialog(
@@ -488,13 +489,13 @@ class _HomeScreenState extends State<HomeScreen>
                       const SizedBox(height: 16),
                       TextFormField(
                         controller: reasonController,
-                        decoration: const InputDecoration(labelText: '最終判断・理由など', border: OutlineInputBorder()),
+                        decoration: const InputDecoration(labelText: '備考', border: OutlineInputBorder()),
                         maxLines: 2,
                       ),
                       const SizedBox(height: 16),
                       const Align(
                         alignment: Alignment.centerLeft,
-                        child: Text('タグ選択 (5つ以上選択してください):', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        child: Text('誰が担当しましたか？:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(height: 8),
                       Wrap(
@@ -539,7 +540,7 @@ class _HomeScreenState extends State<HomeScreen>
                           'statusHistory': FieldValue.arrayUnion([{
                             'type': 'cancelled', // 取り消し確定
                             'timestamp': DateTime.now().toIso8601String(),
-                            'reason': '減点取り消し確定: ${selectedTags.join(", ")} ${reasonController.text}',
+                            'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}',
                           }]),
                         });
                         if (context.mounted) Navigator.pop(context);
@@ -562,7 +563,7 @@ class _HomeScreenState extends State<HomeScreen>
                           'statusHistory': FieldValue.arrayUnion([{
                             'type': 'finalized_deduction',
                             'timestamp': DateTime.now().toIso8601String(),
-                            'reason': '減点確定(口頭可能): ${selectedTags.join(", ")} ${reasonController.text}',
+                            'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}',
                           }]),
                         });
                         if (context.mounted) Navigator.pop(context);
@@ -585,7 +586,7 @@ class _HomeScreenState extends State<HomeScreen>
 
     // If the post is already hidden (yellow tag or cancelled)
     if (item['isHidden'] == true) {
-      final TextEditingController reasonController = TextEditingController(text: item['restoreReason'] ?? '');
+      final TextEditingController reasonController = TextEditingController();
       // すでに非表示の場合は、単に表示に戻す
       await showDialog(
         context: context,
@@ -651,7 +652,7 @@ class _HomeScreenState extends State<HomeScreen>
                           'statusHistory': FieldValue.arrayUnion([{
                             'type': 'cancelled',
                             'timestamp': DateTime.now().toIso8601String(),
-                            'reason': '減点取り消し確定: ${selectedTags.join(", ")} ${reasonController.text}',
+                            'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}',
                           }]),
                         });
                         if (context.mounted) Navigator.pop(context);
@@ -674,7 +675,7 @@ class _HomeScreenState extends State<HomeScreen>
                           'statusHistory': FieldValue.arrayUnion([{
                             'type': 'finalized_deduction', // 減点確定（アイコン非表示用）
                             'timestamp': DateTime.now().toIso8601String(),
-                            'reason': '減点確定: ${selectedTags.join(", ")} ${reasonController.text}',
+                            'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}',
                           }]),
                         });
                         if (context.mounted) Navigator.pop(context);
@@ -705,7 +706,7 @@ class _HomeScreenState extends State<HomeScreen>
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-              title: const Text('減点取り消し'),
+              title: const Text('減点審議'),
               content: SizedBox(
                 width: double.maxFinite,
                 child: SingleChildScrollView(
@@ -717,7 +718,7 @@ class _HomeScreenState extends State<HomeScreen>
                       TextFormField(
                         controller: reasonController, // 理由入力コントローラ
                         decoration: const InputDecoration(
-                          labelText: '取り消し理由・記入欄',
+                          labelText: '備考',
                           border: OutlineInputBorder(),
                         ),
                         maxLines: 2,
@@ -725,7 +726,7 @@ class _HomeScreenState extends State<HomeScreen>
                       const SizedBox(height: 16),
                       const Align(
                         alignment: Alignment.centerLeft,
-                        child: Text('タグ選択 (5つ以上選択してください):', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        child: Text('誰が担当しましたか？:', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(height: 8),
                       Wrap(
@@ -803,7 +804,7 @@ class _HomeScreenState extends State<HomeScreen>
                         'statusHistory': FieldValue.arrayUnion([{
                           'type': 'cancelled',
                           'timestamp': DateTime.now().toIso8601String(),
-                          'reason': '減点取り消し確定: ${selectedTags.join(", ")} ${reasonController.text}',
+                          'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}',
                         }]),
                       });
                       if (context.mounted) Navigator.pop(context);
@@ -837,7 +838,7 @@ class _HomeScreenState extends State<HomeScreen>
                       'statusHistory': FieldValue.arrayUnion([{
                         'type': 'finalized_deduction',
                         'timestamp': DateTime.now().toIso8601String(),
-                        'reason': '減点確定(口頭可能): ${selectedTags.join(", ")} ${reasonController.text}',
+                        'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}',
                       }]),
                     });
                     if (context.mounted) Navigator.pop(context);
@@ -863,27 +864,34 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _submitPost() async {
+    debugPrint('投稿処理を開始します...');
+    if (_isPosting) return;
+
     // 備考に入力がある、画像が選択されている、または減点数が設定されている場合に投稿を許可
     if (_remarksController.text.isNotEmpty ||
         _imageBytes != null ||
         _selectedDeductionPoints > 0) {
       
-      // 統計情報の更新 (非同期で実行)
-      if (_selectedDeductionReason != '未選択') {
-        _incrementViolationCount(_selectedDeductionReason);
-      }
+      debugPrint('入力バリデーションOK');
+      setState(() => _isPosting = true);
 
-      String imageUrl = '';
-      if (_imageBytes != null) {
-        final ref = FirebaseStorage.instance
-            .ref()
-            .child('post_images/${DateTime.now().millisecondsSinceEpoch}.jpg');
-        await ref.putData(_imageBytes!);
-        imageUrl = await ref.getDownloadURL();
-      }
-
-      // トランザクションを使用して、番号の重複を防ぎながら投稿
       try {
+        // 統計情報の更新
+        if (_selectedDeductionReason != '未選択') {
+          _incrementViolationCount(_selectedDeductionReason);
+        }
+
+        String imageUrl = '';
+        if (_imageBytes != null) {
+          debugPrint('画像をアップロード中...');
+          final ref = FirebaseStorage.instance
+              .ref()
+              .child('post_images/${DateTime.now().millisecondsSinceEpoch}.jpg');
+          await ref.putData(_imageBytes!);
+          imageUrl = await ref.getDownloadURL();
+          debugPrint('画像アップロード完了: $imageUrl');
+        }
+
         await FirebaseFirestore.instance.runTransaction((transaction) async {
           // 1. カウンター用のドキュメント(metadata/postCounter)を参照
           // ※事前にFirestoreコンソールで metadata コレクションに postCounter ドキュメントを作り、
@@ -892,15 +900,16 @@ class _HomeScreenState extends State<HomeScreen>
           final counterSnapshot = await transaction.get(counterRef);
 
           int nextNumber = 1;
-          if (counterSnapshot.exists) {
-            nextNumber = (counterSnapshot.data() as Map<String, dynamic>)['current'] + 1;
-          } else {
-            // 初回などカウンターがない場合、1から開始(既存データがある場合は手動でカウンター作成を推奨)
-            nextNumber = 1;
+          if (counterSnapshot.exists && counterSnapshot.data() != null) {
+            final data = counterSnapshot.data() as Map<String, dynamic>;
+            if (data.containsKey('current')) {
+              nextNumber = (data['current'] as int) + 1;
+            }
           }
 
           // 2. カウンターを更新(他の人がこの間に割り込めないようロックされます)
           transaction.set(counterRef, {'current': nextNumber}, SetOptions(merge: true));
+          debugPrint('次の投稿番号: $nextNumber');
 
           // 3. 投稿ドキュメントを作成
           final newPostRef = FirebaseFirestore.instance.collection('posts').doc();
@@ -918,42 +927,49 @@ class _HomeScreenState extends State<HomeScreen>
               {'type': 'created', 'timestamp': DateTime.now().toIso8601String(), 'reason': '新規減点登録'}
             ],
           });
+          debugPrint('Firestoreへの書き込み予約完了');
         });
-      } catch (e) {
-        debugPrint('投稿エラー (トランザクション): $e');
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('投稿に失敗しました。もう一度お試しください。')),
+            SnackBar(
+              content: Text(
+                '投稿しました: $_selectedDeductionPoints点, 理由: $_selectedDeductionReason',
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(12.0),
+              ),
+            ),
           );
         }
-        return;
-      }
 
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              '投稿しました: $_selectedDeductionPoints点, 理由: $_selectedDeductionReason',
-            ),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12.0), // 角丸の半径を調整
-            ),
-          ),
-        );
+        // フォームをリセット
+        setState(() {
+          _selectedValue1 = 1;
+          _selectedValue2 = '1';
+          _yearController.jumpToItem(0);
+          _classController.jumpToItem(0);
+          _selectedCategoryIndex = 0;
+          _selectedDeductionPoints = 1;
+          _selectedDeductionReason = '未選択';
+          _selectedViolation = null;
+          if (_deductionPointsPicker.hasClients) _deductionPointsPicker.jumpToItem(0);
+          _remarksController.clear();
+          _imageBytes = null;
+        });
+      } catch (e) {
+        debugPrint('投稿エラー: $e');
+        if (mounted) {
+          // エラー内容を詳細に表示するように変更
+          String errorMessage = e.toString();
+          if (errorMessage.contains('permission-denied')) errorMessage = '権限エラー：Firebaseのルール期限を確認してください';
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('投稿失敗: $errorMessage')),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isPosting = false);
       }
-
-      // フォームをリセット
-      _selectedValue1 = 1;
-      _selectedValue2 = '1';
-      _yearController.jumpToItem(0);
-      _classController.jumpToItem(0);
-      _selectedCategoryIndex = 0;
-      _selectedDeductionPoints = 1;
-      _selectedDeductionReason = '未選択';
-      _selectedViolation = null;
-      if (_deductionPointsPicker.hasClients) _deductionPointsPicker.jumpToItem(0);
-      _remarksController.clear();
-      _imageBytes = null;
     }
   }
 
@@ -1416,6 +1432,7 @@ class _HomeScreenState extends State<HomeScreen>
                       const SizedBox(height: 24),
                       TextField(
                         controller: _remarksController,
+                        onChanged: (_) => setState(() {}), // 入力時にボタンの有効状態を更新
                         decoration: const InputDecoration(
                           labelText: '備考',
                           border: OutlineInputBorder(),
@@ -1438,9 +1455,9 @@ class _HomeScreenState extends State<HomeScreen>
                             ),
                           ),
                           ElevatedButton.icon(
-                            onPressed: _selectedViolation == null ? null : _submitPost,
-                            icon: const Icon(Icons.send),
-                            label: const Text('登録する'),
+                            onPressed: (!_isPosting && (_remarksController.text.isNotEmpty || _imageBytes != null || _selectedViolation != null)) ? _submitPost : null,
+                            icon: _isPosting ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white)) : const Icon(Icons.send),
+                            label: Text(_isPosting ? '登録中...' : '登録する'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.blueAccent,
                               foregroundColor: Colors.white,
@@ -1605,10 +1622,15 @@ class _HomeScreenState extends State<HomeScreen>
       } catch (_) {}
     }
     
-    // 「減点取り消し」後は3日経った投稿と同じ色(黒)にする
-    final bool isCancelled = status == 'cancelled';
-    // 最終確定済み、または未議論でホームに戻った投稿は灰色にする
-    final Color numberingColor = (isFinalized || isOralPossibleExpired) ? Colors.grey : ((isRecent && !isCancelled) ? Colors.pink : Colors.black87);
+    // 審議中・取り消し中（アーカイブタブ内）の投稿かどうか
+    final bool isPendingState = item['isHidden'] == true || isDeduction;
+    // ユーザー要求：
+    // 1. 取り消した減点タブにある間(isPendingState)かつ期限前(!isOralPossibleExpired)はピンク
+    // 2. 新規の期限内投稿(isRecent)もピンク
+    // 3. 3日経過やホーム画面に戻った時は灰色
+    final Color numberingColor = (!isOralPossibleExpired && (isPendingState || isRecent))
+        ? Colors.pink 
+        : Colors.grey;
 
     // アイコン表示条件:
     // 表示しない条件: 口頭可能期限切れ -> !isOralPossibleExpired
@@ -1867,9 +1889,11 @@ class _HomeScreenState extends State<HomeScreen>
 
             final bool isFinalized = (item['statusHistory'] as List<dynamic>?)?.any((e) => e is Map && e['type'] == 'finalized_deduction') ?? false;
 
+            final bool isCancelled = (item['discussionStatus'] == 'cancelled');
+            final bool isOralPossibleExpired = item['_isOralPossibleExpired'] == true;
             return DataRow(
               cells: [
-                DataCell(Text('${item['_uiNumber'] ?? 0}', style: TextStyle(color: isFinalized ? Colors.grey : (isRecent ? Colors.pink : Colors.black87))), 
+                DataCell(Text('${item['_uiNumber'] ?? 0}', style: TextStyle(color: (isCancelled || isFinalized || isOralPossibleExpired) ? Colors.grey : (isRecent ? Colors.pink : Colors.black87))),
                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
                 DataCell(
                   Text(item['timestamp'] != null

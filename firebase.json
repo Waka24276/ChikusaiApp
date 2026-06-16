@@ -1,1 +1,10 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"chikusaiapp","appId":"1:964296765272:android:68a90ce16195ad822eff2d","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"chikusaiapp","configurations":{"android":"1:964296765272:android:68a90ce16195ad822eff2d","ios":"1:964296765272:ios:97212a0c5d6ce1e02eff2d","macos":"1:964296765272:ios:97212a0c5d6ce1e02eff2d","web":"1:964296765272:web:da6352654e4609df2eff2d","windows":"1:964296765272:web:7f8b301088192bfb2eff2d"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "flutter": {"platforms":{"android":{"default":{"projectId":"chikusaiapp","appId":"1:964296765272:android:68a90ce16195ad822eff2d","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"chikusaiapp","configurations":{"android":"1:964296765272:android:68a90ce16195ad822eff2d","ios":"1:964296765272:ios:97212a0c5d6ce1e02eff2d","macos":"1:964296765272:ios:97212a0c5d6ce1e02eff2d","web":"1:964296765272:web:da6352654e4609df2eff2d","windows":"1:964296765272:web:7f8b301088192bfb2eff2d"}}}}}
+}

@@ -173,7 +173,7 @@ class PostDetailScreen extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('ステータス変更履歴', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
+        const Text('履歴', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Colors.blueGrey)),
         const SizedBox(height: 16),
         ...history.asMap().entries.map((entry) {
           final int index = entry.key;
@@ -191,14 +191,14 @@ class PostDetailScreen extends StatelessWidget {
               color = Colors.blue;
               break;
             case 'discussion_started':
-              typeLabel = '減点通知書発行う';
+              typeLabel = '減点通知書発行';
               icon = Icons.forum_outlined;
               color = Colors.red;
               break;
             case 'finalized_deduction':
-              typeLabel = '減点確定';
+              typeLabel = '減点通知書発行';
               icon = Icons.check_circle;
-              color = Colors.orange;
+              color = const Color.fromARGB(255, 255, 196, 0);
               break;
             case 'cancelled':
               typeLabel = '減点取り消し確定';
