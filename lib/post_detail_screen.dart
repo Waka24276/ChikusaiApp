@@ -38,49 +38,42 @@ class PostDetailScreen extends StatelessWidget {
     Color statusColor = Colors.grey;
 
     bool isExpired = false;
-    if (status == 'deduction') {
-      if (discussionTimestampStr != null) {
-        try {
-          final dt = DateTime.parse(discussionTimestampStr);
-          final deadline = addWorkingDays(dt, 3).add(const Duration(days: 1)); // 期限は3営業日後の終わり
-          final remaining = deadline.difference(DateTime.now());
-          if (remaining.isNegative) {
-            isExpired = true;
-          } else {
-            remainingTimeText = '残り ${remaining.inDays}日 ${remaining.inHours % 24}時間 ${remaining.inMinutes % 60}分';
-          }
-        } catch (_) {}
-      }
-      if (!isExpired) {
-        statusLabel = '口頭可能 (審議中)';
-        statusColor = Colors.red;
-      }
+
+    String? refTimestampStr = discussionTimestampStr;
+    if (refTimestampStr == null) {
+      final refEvent = history.reversed.firstWhere(
+        (e) => e is Map && (e['type'] == 'finalized_deduction' || e['type'] == 'archived_undiscussed' || e['type'] == 'discussion_started'),
+        orElse: () => null
+      );
+      if (refEvent != null) refTimestampStr = refEvent['timestamp'];
+    }
+    refTimestampStr ??= post['timestamp'];
+
+    if (refTimestampStr != null) {
+      try {
+        final dt = DateTime.parse(refTimestampStr);
+        final deadline = addWorkingDays(dt, 3).add(const Duration(days: 1));
+        final remaining = deadline.difference(DateTime.now());
+        if (remaining.isNegative) {
+          isExpired = true;
+        } else if (status == 'deduction' || (isHidden && status == null)) {
+          final lastDay = deadline.subtract(const Duration(days: 1));
+          remainingTimeText = '${lastDay.month}/${lastDay.day}まで';
+        }
+      } catch (_) {}
+    }
+
+    // 表示判定：審議中(deduction) または 初期アーカイブ(status==null) で期限内の場合
+    // 減点確定(finalized)は含めないように修正
+    if ((status == 'deduction' || (isHidden && status == null)) && !isExpired) {
+      statusLabel = '口頭可能';
+      statusColor = Colors.pink;
+    } else if (status == 'finalized') {
+      statusLabel = '減点確定';
+      statusColor = Colors.orange;
     } else if (status == 'cancelled') {
-      try {
-        // 詳細画面でも同様に「減点確定」イベントを起点に期限を計算
-        final cancelEvent = history.reversed.firstWhere((e) => e is Map && e['type'] == 'finalized_deduction', orElse: () => null);
-        if (cancelEvent != null && cancelEvent['timestamp'] != null) {
-          final dt = DateTime.parse(cancelEvent['timestamp']);
-          isExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1)));
-        }
-      } catch (_) {}
-      if (!isExpired) {
-        statusLabel = '口頭可能';
-        statusColor = Colors.orange;
-      }
-    } else if (isHidden && status == null) {
-      try {
-        final archiveEvent = history.reversed.firstWhere((e) => e is Map && e['type'] == 'archived_undiscussed', orElse: () => null);
-        if (archiveEvent != null && archiveEvent['timestamp'] != null) {
-          final dt = DateTime.parse(archiveEvent['timestamp']);
-          isExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1)));
-        }
-      } catch (_) {}
-      
-      if (!isExpired) {
-        statusLabel = '口頭可能';
-        statusColor = Colors.orange; // 視認性のため少し濃い色
-      }
+      statusLabel = '減点取り消し確定';
+      statusColor = Colors.green;
     }
 
     return Scaffold(
@@ -196,7 +189,7 @@ class PostDetailScreen extends StatelessWidget {
               color = Colors.red;
               break;
             case 'finalized_deduction':
-              typeLabel = '減点通知書発行';
+              typeLabel = '減点確定';
               icon = Icons.check_circle;
               color = const Color.fromARGB(255, 255, 196, 0);
               break;

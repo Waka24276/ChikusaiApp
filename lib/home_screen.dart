@@ -528,13 +528,8 @@ class _HomeScreenState extends State<HomeScreen>
                       setDialogState(() => isUploading = true);
                       try {
                         await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
-                          'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
-                          'isHidden': false, // ホーム画面に表示
-                          'discussionStatus': 'finalized', // 「口頭可能」タグを消す(確定状態)
-                          'isHidden': true, // 「取り消した減点」タブへ
-                          'discussionStatus': 'finalized', // タグを消す
                           'isHidden': true, // アーカイブに表示
-                          'discussionStatus': 'finalized', // タグを非表示にする
+                          'discussionStatus': 'cancelled', // ステータスを「取り消し済み」に設定
                           'cancellationTags': selectedTags,
                           'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
                           'statusHistory': FieldValue.arrayUnion([{
@@ -556,8 +551,9 @@ class _HomeScreenState extends State<HomeScreen>
                       setDialogState(() => isUploading = true);
                       try {
                         await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
-                          'isHidden': true, // 「取り消した減点」タブへ移動
-                          'discussionStatus': 'cancelled', // 「口頭可能」タグを表示
+                          'isHidden': false, // ホームへ移動
+                          'discussionStatus': 'finalized', // ステータスを「確定済み」に設定
+                          'discussionTimestamp': DateTime.now().toIso8601String(), // 3日間のカウントダウン開始
                           'cancellationTags': selectedTags,
                           'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
                           'statusHistory': FieldValue.arrayUnion([{
@@ -644,8 +640,8 @@ class _HomeScreenState extends State<HomeScreen>
                       setDialogState(() => isUploading = true);
                       try {
                         await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
-                          'isHidden': true,
-                          'discussionStatus': 'finalized',
+                          'isHidden': true, // アーカイブに表示
+                          'discussionStatus': 'cancelled', // ステータスを「取り消し済み」に設定
                           'discussionTimestamp': FieldValue.delete(),
                           'cancellationTags': selectedTags,
                           'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
@@ -670,6 +666,7 @@ class _HomeScreenState extends State<HomeScreen>
                         await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
                           'isHidden': false, // ホーム画面へ
                           'discussionStatus': 'finalized', // タグを表示しない
+                          'discussionTimestamp': DateTime.now().toIso8601String(), // カウントダウン開始
                           'cancellationTags': selectedTags,
                           'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
                           'statusHistory': FieldValue.arrayUnion([{
@@ -796,8 +793,9 @@ class _HomeScreenState extends State<HomeScreen>
                         hiddenImageUrl = await ref.getDownloadURL();
                       }
                       await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
-                        'isHidden': true, // アーカイブに表示
-                        'discussionStatus': 'finalized', // タグを非表示にする
+                        'isHidden': true, // 取り消した減点タブへ移動
+                        'discussionStatus': 'cancelled', // ステータスを「取り消し済み」に設定
+                        'discussionTimestamp': DateTime.now().toIso8601String(), // 3日間のカウントダウン開始
                         'hiddenReasonImage': hiddenImageUrl.isNotEmpty ? hiddenImageUrl : FieldValue.delete(), // 弁明書写真
                         'cancellationTags': selectedTags,
                         'restoreReason': reasonController.text,
@@ -830,13 +828,15 @@ class _HomeScreenState extends State<HomeScreen>
                     }
                     // Firestoreのデータを更新
                     await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
-                      'isHidden': true, // 「取り消した減点」タブへ移動
-                      'discussionStatus': 'cancelled', // 「口頭可能」タグを表示
+                      'isHidden': false, // ホーム画面に表示 (赤タグ)
+                      'discussionStatus': 'deduction', // ステータスを「審議中」に設定
+                      'discussionTimestamp': DateTime.now().toIso8601String(), // 審議開始日時を記録
                       'hiddenReasonImage': hiddenImageUrl,
                       'cancellationTags': selectedTags,
                       'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
                       'statusHistory': FieldValue.arrayUnion([{
                         'type': 'finalized_deduction',
+                        'type': 'discussion_started',
                         'timestamp': DateTime.now().toIso8601String(),
                         'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}',
                       }]),
@@ -1098,42 +1098,34 @@ class _HomeScreenState extends State<HomeScreen>
 
       // 「口頭可能」状態で3営業日経過したか判定
       bool isOralPossibleExpired = false;
-      if (isHidden && status == null) {
-        // 黄色タグの「口頭可能」(旧:未議論)
+      String? refTimestampStr = post['discussionTimestamp'];
+      
+      // discussionTimestampがない場合、履歴から適切な時間を探す
+      if (refTimestampStr == null) {
         final List<dynamic> history = post['statusHistory'] ?? [];
+        final refEvent = history.reversed.firstWhere(
+          (e) => e is Map && (e['type'] == 'finalized_deduction' || e['type'] == 'archived_undiscussed' || e['type'] == 'discussion_started'),
+          orElse: () => null
+        );
+        if (refEvent != null) refTimestampStr = refEvent['timestamp'];
+      }
+
+      // それでも無い場合は投稿時の時間を使用
+      refTimestampStr ??= post['timestamp'];
+
+      if (refTimestampStr != null) {
         try {
-          final archiveEvent = history.reversed.firstWhere((e) => e is Map && e['type'] == 'archived_undiscussed', orElse: () => null);
-          if (archiveEvent != null && archiveEvent['timestamp'] != null) {
-            final dt = DateTime.parse(archiveEvent['timestamp']);
-            isOralPossibleExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1)));
-          }
+          final dt = DateTime.parse(refTimestampStr);
+          isOralPossibleExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1)));
         } catch (_) {}
-      } else if (status == 'cancelled') {
-        final List<dynamic> history = post['statusHistory'] ?? [];
-        try {
-          // イエロータグの状態は「減点確定(口頭可能)」イベントが起点
-          final cancelEvent = history.reversed.firstWhere((e) => e is Map && e['type'] == 'finalized_deduction', orElse: () => null);
-          if (cancelEvent != null && cancelEvent['timestamp'] != null) {
-            final dt = DateTime.parse(cancelEvent['timestamp']);
-            isOralPossibleExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1)));
-          }
-        } catch (_) {}
-      } else if (isDeduction) {
-        // 赤色タグの「口頭可能(審議中)」
-        if (post['discussionTimestamp'] != null) {
-          try {
-            final dt = DateTime.parse(post['discussionTimestamp']);
-            isOralPossibleExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1)));
-          } catch (_) {}
-        }
       }
 
       if (_showHiddenOnly) {
-        // 「取り消した減点」タブ:期限切れの口頭可能はホームに戻るため、ここでは除外
-        if ((!isHidden && !isDeduction) || isOralPossibleExpired) continue;
+        // 「取り消した減点」タブ: 期限切れの口頭可能はホームに戻るが、取り消し確定(cancelled)はここに残す
+        if (((!isHidden && !isDeduction) || isOralPossibleExpired) && status != 'cancelled') continue;
       } else {
-        // メインタブ:通常表示分 + 期限切れの口頭可能を表示
-        if ((isHidden || isDeduction) && !isOralPossibleExpired) continue;
+        // メインタブ: 通常表示分 + 期限切れの口頭可能を表示するが、取り消し確定(cancelled)は除外する
+        if (((isHidden || isDeduction) && !isOralPossibleExpired) || status == 'cancelled') continue;
       }
 
       if (tabClassFilter != null && post['class'] != tabClassFilter) continue;
@@ -1597,9 +1589,6 @@ class _HomeScreenState extends State<HomeScreen>
     final int postNumber = item['_uiNumber'] ?? 0;
     final Uint8List? cachedBytes = item['_cachedUint8List'] as Uint8List?;
 
-    final List<dynamic> history = item['statusHistory'] ?? [];
-    // 「減点確定」の履歴がある場合は最終状態とみなす (取消は戻せるようにする)
-    final bool isFinalized = history.any((e) => e is Map && e['type'] == 'finalized_deduction');
     final bool isOralPossibleExpired = item['_isOralPossibleExpired'] == true;
 
     final String? status = item['discussionStatus'];
@@ -1622,29 +1611,21 @@ class _HomeScreenState extends State<HomeScreen>
       } catch (_) {}
     }
     
-    // 審議中・取り消し中（アーカイブタブ内）の投稿かどうか
-    final bool isPendingState = item['isHidden'] == true || isDeduction;
-    // ユーザー要求：
-    // 1. 取り消した減点タブにある間(isPendingState)かつ期限前(!isOralPossibleExpired)はピンク
-    // 2. 新規の期限内投稿(isRecent)もピンク
-    // 3. 3日経過やホーム画面に戻った時は灰色
-    final Color numberingColor = (!isOralPossibleExpired && (isPendingState || isRecent))
-        ? Colors.pink 
-        : Colors.grey;
+    // 「口頭可能」タグが表示される条件（審議中、または初期アーカイブ状態）
+    // 減点確定(finalized)や取り消し(cancelled)後はタグを消す (このロジックは_buildStatusTagに移動)
+    final bool isOralPossibleActive = !isOralPossibleExpired && (isDeduction || (item['isHidden'] == true && status == null));
 
-    // アイコン表示条件:
-    // 表示しない条件: 口頭可能期限切れ -> !isOralPossibleExpired
-    // 表示する条件のいずれか:
-    //  - 非表示かつ未議論 (口頭可能: 黄)
-    //  - 審議後の取消済み (status == 'cancelled')
-    //  - 口頭可能で審議中 (isDeduction && !isDeductionExpired)
-    //  - 確定前かつ通常の投稿 (未処理のホーム投稿)
-    final bool showToggleIcon = !isOralPossibleExpired && (
-      (item['isHidden'] == true && status == null) || // 口頭可能 (黄 - 未議論)
-      (status == 'cancelled') || // 口頭可能 (黄 - 審議後)
-      (isDeduction && !isDeductionExpired) || // 口頭可能(審議中) (赤)
-      (!isFinalized && item['isHidden'] == false && status == null) // 通常の投稿 (ホーム)
-    );
+    // ナンバリングをピンクにする条件：口頭可能期間中の投稿、または未処理の新規投稿
+    // タグが外れた際、およびステータスが確定した時点で灰色（カウント停止）にする
+    final bool shouldBePink = isOralPossibleActive || (item['isHidden'] == false && status == null && isRecent);
+    final Color numberingColor = shouldBePink ? Colors.pink : Colors.grey;
+
+    // アイコン表示条件: 
+    // 1. 期限切れでないこと (!isOralPossibleExpired)
+    // 2. アーカイブ内（isHidden: true）で、かつ既に確定（cancelled or finalized）状態でないこと
+    // ※ホーム画面（isHidden: false）にある投稿は、警告中・確定後を問わず表示する
+    // 減点確定(finalized)または取り消し確定(cancelled)の投稿ではアイコンを非表示にする
+    final bool showToggleIcon = (status != 'finalized' && status != 'cancelled') && !isOralPossibleExpired;
 
     // アイコンとツールチップのテキストを決定
     IconData toggleIconData = Icons.undo;
@@ -1887,13 +1868,17 @@ class _HomeScreenState extends State<HomeScreen>
               } catch (_) {}
             }
 
-            final bool isFinalized = (item['statusHistory'] as List<dynamic>?)?.any((e) => e is Map && e['type'] == 'finalized_deduction') ?? false;
-
-            final bool isCancelled = (item['discussionStatus'] == 'cancelled');
             final bool isOralPossibleExpired = item['_isOralPossibleExpired'] == true;
+            final String? status = item['discussionStatus'];
+            final bool isHidden = item['isHidden'] == true; // 元の非表示フラグ
+
+            final bool isOralPossibleActive = !isOralPossibleExpired && (status == 'deduction' || (isHidden && status == null));
+            final bool shouldBePink = isOralPossibleActive || (isHidden == false && status == null && isRecent);
+
             return DataRow(
               cells: [
-                DataCell(Text('${item['_uiNumber'] ?? 0}', style: TextStyle(color: (isCancelled || isFinalized || isOralPossibleExpired) ? Colors.grey : (isRecent ? Colors.pink : Colors.black87))),
+                DataCell(Text('${item['_uiNumber'] ?? 0}',
+                         style: TextStyle(color: shouldBePink ? Colors.pink : Colors.grey)),
                          onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
                 DataCell(
                   Text(item['timestamp'] != null
@@ -2081,16 +2066,13 @@ class _HomeScreenState extends State<HomeScreen>
 
     final bool isOralPossibleExpired = item['_isOralPossibleExpired'] == true;
 
-    if (status == 'deduction' && !isOralPossibleExpired) { // 期限切れでない口頭可能
-      // 3日経過していたらタグを出さない
-      return _tagWidget('口頭可能', Colors.red, Colors.white);
-    } else if (status == 'finalized') {
-      return const SizedBox.shrink();
-    } else if ((status == 'cancelled' || (isHidden && status == null)) && !isOralPossibleExpired) {
-      // 口頭可能(旧:未議論)かつ期限切れでない場合のみタグを表示
+    if (isOralPossibleExpired) return const SizedBox.shrink();
+
+    // 審議中(deduction)、または警告直後(isHidden && status == null)の場合にタグを表示
+    // 減点確定(finalized)後や、'cancelled' (取り消し確定) の時は表示しないように修正
+    if (status == 'deduction' || (isHidden && status == null)) {
       return _tagWidget('口頭可能', Colors.yellow, Colors.black87);
     }
-    // それ以外はタグを表示しない
     return const SizedBox.shrink();
   }
 
