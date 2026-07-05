@@ -1984,37 +1984,45 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Widget _buildImageWidget(String? imagePath, {double? size, double? width, double? height, Uint8List? cachedBytes}) {
-    if (imagePath == null || imagePath.isEmpty) return const SizedBox.shrink();
+    final double iconSize = size ?? 40;
+    // 表示すべき画像パスもキャッシュもない場合は、何も表示しない
+    if ((imagePath == null || imagePath.isEmpty) && (cachedBytes == null || cachedBytes.isEmpty)) {
+      return SizedBox(width: width ?? size, height: height ?? size);
+    }
+
     final double? w = width ?? size;
     final double? h = height ?? size;
-    final double iconSize = size ?? 40; // デフォルトのアイコンサイズ
-    try {
-      final bool isNetwork = imagePath.startsWith('http');
-      // キャッシュサイズが0以下になるとエラーになるため、1以上の整数になる場合のみ値を設定します
-      final int? cacheW = (w != null && w > 0 && w.isFinite && (w * 2.0).toInt() > 0) ? (w * 2.0).toInt() : null;
-      final int? cacheH = (h != null && h > 0 && h.isFinite && (h * 2.0).toInt() > 0) ? (h * 2.0).toInt() : null;
+    final int? cacheW = (w != null && w > 0 && w.isFinite && (w * 2.0).toInt() > 0) ? (w * 2.0).toInt() : null;
+    final int? cacheH = (h != null && h > 0 && h.isFinite && (h * 2.0).toInt() > 0) ? (h * 2.0).toInt() : null;
 
-      return RepaintBoundary(
-        child: isNetwork
-            ? Image.network(
-                imagePath,
-                width: w, height: h, fit: BoxFit.cover,
-                cacheWidth: cacheW, cacheHeight: cacheH,
-                errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize),
-              )
-            : _buildMemoryImage(imagePath, cachedBytes, w, h, cacheW, cacheH, iconSize), // 分離したメソッドを呼ぶ
+    // 1. URL形式の画像がある場合
+    if (imagePath != null && imagePath.startsWith('http')) {
+      return Image.network(
+        imagePath,
+        width: w, height: h, fit: BoxFit.cover,
+        cacheWidth: cacheW, cacheHeight: cacheH,
+        errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]),
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          // 読み込み中もキャッシュがあれば表示
+          if (cachedBytes != null && cachedBytes.isNotEmpty) {
+            return Image.memory(cachedBytes, width: w, height: h, fit: BoxFit.cover);
+          }
+          return Center(child: CupertinoActivityIndicator(radius: iconSize / 4));
+        },
       );
-    } catch (_) {
-      return Icon(Icons.broken_image, size: iconSize);
     }
+
+    // 2. Base64形式の画像、またはキャッシュされたバイトデータがある場合
+    return _buildMemoryImage(imagePath, cachedBytes, w, h, cacheW, cacheH, iconSize);
   }
 
   // メソッドを独立させる(構文エラーの修正)
-  Widget _buildMemoryImage(String imagePath, Uint8List? fallbackBytes, double? w, double? h, int? cacheW, int? cacheH, double iconSize) {
+  Widget _buildMemoryImage(String? imagePath, Uint8List? fallbackBytes, double? w, double? h, int? cacheW, int? cacheH, double iconSize) {
     try {
-      final bytes = fallbackBytes ?? base64Decode(imagePath);
+      final bytes = fallbackBytes ?? base64Decode(imagePath ?? '');
       if (bytes.isEmpty) {
-        return Icon(Icons.broken_image, size: iconSize);
+        return Icon(Icons.image_not_supported, size: iconSize, color: Colors.grey[300]);
       }
 
       return Image.memory(
@@ -2024,10 +2032,10 @@ class _HomeScreenState extends State<HomeScreen>
         gaplessPlayback: true,
         cacheWidth: cacheW,
         cacheHeight: cacheH,
-        errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize),
+        errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]),
       );
     } catch (_) {
-      return Icon(Icons.broken_image, size: iconSize);
+      return Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]);
     }
   }
 

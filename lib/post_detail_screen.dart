@@ -54,7 +54,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
 
     // Base64形式の画像（httpで始まらない）で、まだ変換処理中でない場合
-    if (imagePath.isNotEmpty && !imagePath.startsWith('http')) {
+    if (!_isUploading && imagePath.isNotEmpty && !imagePath.startsWith('http')) {
       if (!mounted) return;
       setState(() => _isUploading = true); // 変換中インジケーターを表示
 
@@ -82,6 +82,9 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // ビルド時に画像のマイグレーションが必要かチェック
+    _migrateOldImageIfNeeded();
+
     final String classInfo = _post['class'] ?? '';
     final String deductionPoints = _post['deductionPoints'] ?? '';
     final String deductionReason = _post['deductionReason'] ?? '';
@@ -360,6 +363,22 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
+  void _showFullScreenImage(String imagePath, Uint8List? cachedBytes) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => Scaffold(
+          backgroundColor: Colors.black,
+          appBar: AppBar(
+            backgroundColor: Colors.black,
+            elevation: 0,
+            iconTheme: const IconThemeData(color: Colors.white),
+          ),
+          body: Center(child: _buildDetailImage(imagePath, isFullScreen: true)),
+        ),
+      ),
+    );
+  }
+
   Future<void> _addOrUpdateImage() async {
     final picker = ImagePicker();
     final XFile? pickedFile = await picker.pickImage(
@@ -395,68 +414,60 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     }
   }
 
-  Widget _buildDetailImage(String imagePath) {
+  Widget _buildDetailImage(String imagePath, {bool isFullScreen = false}) {
+    final Uint8List? cachedBytes = _post['_cachedUint8List'] as Uint8List?;
+
     return RepaintBoundary(
       child: GestureDetector(
-        onTap: _isUploading ? null : _addOrUpdateImage,
+        onTap: isFullScreen ? null : () => _showFullScreenImage(imagePath, cachedBytes),
         child: Stack(
           alignment: Alignment.center,
           children: [
-            LayoutBuilder(
-        builder: (context, constraints) {
-          final Uint8List? cachedBytes = _post['_cachedUint8List'] as Uint8List?;
-          // 画面幅に合わせてキャッシュサイズを最適化（メモリ節約）
-          final int? cacheWidth = (constraints.maxWidth > 0 && constraints.maxWidth.isFinite)
-              ? (constraints.maxWidth * 2.0).toInt()
-              : null;
-
-          // 1. 最初にキャッシュされたバイトデータがあるか確認し、あればそれを表示
-          if (cachedBytes != null && cachedBytes.isNotEmpty) {
-            return Image.memory(
-              cachedBytes,
-              fit: BoxFit.contain,
-              cacheWidth: cacheWidth,
-              errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 100, color: Colors.red),
-            );
-          }
-
-          // 2. キャッシュがなく、imagePathがURLの場合
-          if (imagePath.startsWith('http')) {
-            return Image.network(
-              imagePath,
-              fit: BoxFit.contain,
-              cacheWidth: cacheWidth,
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return const Center(child: CircularProgressIndicator());
-              },
-              errorBuilder: (context, error, stackTrace) {
-                debugPrint('Image.network error: $error');
-                return const Icon(Icons.broken_image, size: 100, color: Colors.red);
-              },
-            );
-          }
-
-          // 3. キャッシュがなく、URLでもない場合 (Base64文字列と仮定)
-          if (imagePath.isNotEmpty) {
-            try {
-              final bytes = base64Decode(imagePath);
-              return Image.memory(
-                bytes,
-                fit: BoxFit.contain,
-                cacheWidth: cacheWidth,
-                errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 100, color: Colors.red),
-              );
-            } catch (e) {
-              debugPrint('Base64 decode error: $e');
-              return const Icon(Icons.broken_image, size: 100, color: Colors.red);
-            }
-          }
-
-          // 4. 上記のいずれにも当てはまらない場合
-          return const Icon(Icons.image_not_supported, size: 100, color: Colors.grey);
-        },
-      ),
+            // 1. URL形式の画像があれば、それを最優先で表示
+            if (imagePath.startsWith('http'))
+              Hero(
+                tag: 'image_${_post['id']}',
+                child: Image.network(
+                  imagePath,
+                  key: ValueKey(imagePath), // URLが変わったらウィジェットを再構築
+                  fit: BoxFit.contain,
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    // 読み込み中も、もしキャッシュがあればそれを表示しておく
+                    if (cachedBytes != null && cachedBytes.isNotEmpty) {
+                      return Image.memory(cachedBytes, fit: BoxFit.contain);
+                    }
+                    return const Center(child: CircularProgressIndicator());
+                  },
+                  errorBuilder: (context, error, stackTrace) {
+                    debugPrint('Image.network error: $error');
+                    return const Icon(Icons.broken_image, size: 100, color: Colors.red);
+                  },
+                ),
+              )
+            // 2. URL形式でない場合、キャッシュまたはBase64のデコードを試みる
+            else if (imagePath.isNotEmpty)
+              Builder(builder: (context) {
+                try {
+                  // メモリキャッシュがあればそれを使う、なければデコードする
+                  final bytes = cachedBytes ?? base64Decode(imagePath);
+                  return Hero(
+                    tag: 'image_${_post['id']}',
+                    child: Image.memory(
+                      bytes,
+                      key: ValueKey(imagePath.substring(0, (imagePath.length > 20) ? 20 : imagePath.length)), // Base64の先頭部分でキーを作成
+                      fit: BoxFit.contain,
+                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 100, color: Colors.red),
+                    ),
+                  );
+                } catch (e) {
+                  debugPrint('Base64 decode error: $e');
+                  return const Icon(Icons.broken_image, size: 100, color: Colors.red);
+                }
+              })
+            // 3. 表示できる画像が何もない場合 (ただし全画面表示のときは表示しない)
+            else
+              if (!isFullScreen) const Icon(Icons.image_not_supported, size: 100, color: Colors.grey),
             if (_isUploading)
               Container(
                 color: Colors.black.withOpacity(0.5),
@@ -464,7 +475,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                   child: CircularProgressIndicator(color: Colors.white),
                 ),
               )
-            else
+            else if (!isFullScreen)
               const Icon(
                 Icons.edit,
                 color: Colors.white,
