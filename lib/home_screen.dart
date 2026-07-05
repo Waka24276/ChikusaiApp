@@ -55,11 +55,115 @@ class ViolationCategory {
   ViolationCategory(this.title, this.items);
 }
 
+// 違反項目の定義
+const ViolationItem _rehaJikanChoka = ViolationItem('リハで時間超過', 7);
+const ViolationItem _butaiWasuremono = ViolationItem('舞台撤退時忘れ物', 1);
+const ViolationItem _kikenNaOdogu = ViolationItem('危険な大道具の使用', 12);
+const ViolationItem _mutodokeWaremono = ViolationItem('無届での割れ物の使用', 8);
+const ViolationItem _jyoenJikokuChoka = ViolationItem('上演時刻超過', 20);
+
+const ViolationItem _taikoGoKitaChukan = ViolationItem('退校時間後北館、中館にいる', 1);
+const ViolationItem _gaishutsuTodoke = ViolationItem('外出届を携帯せず外出', 20);
+const ViolationItem _jikanGaiSagyoo = ViolationItem('指定時間外での作業', 3);
+const ViolationItem _bashoGaiSagyoo = ViolationItem('指定場所以外での作業', 3);
+const ViolationItem _igaiSanka = ViolationItem('本校生徒、職員以外の参加', 15);
+
+const ViolationItem _koguFunshitsu = ViolationItem('クラス工具紛失、未返却', 5);
+const ViolationItem _seitoKaiKoguMiHenkyaku = ViolationItem('生徒会工具未返却', 3);
+const ViolationItem _seitoKaiKoguFunshitsu = ViolationItem('生徒会工具紛失', 8);
+const ViolationItem _yakuinIgaiKariiru = ViolationItem('役員以外が生徒会工具を借りる', 1);
+const ViolationItem _mataKashiMudai = ViolationItem('生徒会工具の又貸し、無断借用', 1);
+const ViolationItem _kyokaNashiDenko = ViolationItem('許可無し電動工具使用', 15);
+const ViolationItem _shibutsuKoguViolation = ViolationItem('私物工具使用許可証への違反行為', 10);
+const ViolationItem _denkoKiken = ViolationItem('電動工具による危険行為', 10);
+const ViolationItem _fuyonaToden = ViolationItem('不必要な時間、長時間の盗電行為', 5);
+const ViolationItem _mishinFuteki = ViolationItem('ミシンの不適切な取扱い', 3);
+const ViolationItem _seisoFubi = ViolationItem('作業場所の清掃不備', 3, maxPoints: 20, tags: ['ペンキ', 'ガムテープ', '汚れ']);
+const ViolationItem _kikenbutsuHouchi = ViolationItem('下校時刻後に危険物を放置', 5);
+const ViolationItem _penkiIgaiNagashi = ViolationItem('ペンキを指定場所以外に流す', 12, tags: ['水道', '排水', '汚染']);
+const ViolationItem _shiyoKinshi = ViolationItem('使用禁止物の使用', 10);
+const ViolationItem _gomiBunbetsu = ViolationItem('ごみの分別不備、不適切廃棄', 3);
+const ViolationItem _inpeiKyogi = ViolationItem('隠蔽、虚偽の報告、認めない', 10, maxPoints: 20);
+const ViolationItem _sonshoRakugaki = ViolationItem('設備、備品、工具の破損、落書き', 3, maxPoints: 20, tags: ['壊した', '机', '椅子', '壁']);
+
+const ViolationItem _tareMakuRakka_3rd = ViolationItem('垂れ幕、装飾が展示中に落下', 20);
+const ViolationItem _tareMakuRakka_1_2nd = ViolationItem('垂れ幕、装飾が展示中に落下', 10);
+const ViolationItem _gakujitsuInNashi = ViolationItem('学実の印が無い看板等の使用', 5);
+const ViolationItem _keihinHaifu = ViolationItem('景品を配布する', 10, tags: ['お菓子', 'プレゼント']);
+const ViolationItem _anzenKake = ViolationItem('安全性に欠けたPR', 5);
+const ViolationItem _jyuGoYakuKyokaNashi = ViolationItem('15役から許可の無いPR', 4);
+
+const ViolationItem _sekkeiZutoKotonaru = ViolationItem('提出した設計図と異なる構造で制作', 20);
+const ViolationItem _kyokaNashiPoleIgai = ViolationItem('許可なしにポール以外の支柱を使用', 17, tags: ['15役']);
+const ViolationItem _rokaHamiDashi = ViolationItem('廊下へ30㎝以上はみ出した制作', 5, tags: ['建築物']);
+const ViolationItem _kaijoJiniNyujoFukano = ViolationItem('会場時に来場者が入場できない状態', 5);
+
+List<ViolationCategory> getViolationDataForGrade(int grade) {
+  if (grade == 3) {
+    
+    return [
+      ViolationCategory('ステージ', [
+        _rehaJikanChoka,
+        _butaiWasuremono,
+        _kikenNaOdogu,
+        _mutodokeWaremono,
+        _jyoenJikokuChoka,
+      ]),
+      ViolationCategory('学校祭', [
+        _taikoGoKitaChukan,
+        _gaishutsuTodoke,
+        _jikanGaiSagyoo,
+        _bashoGaiSagyoo,
+        _igaiSanka,
+      ]),
+      ViolationCategory('資材', [
+        _koguFunshitsu,
+        _seitoKaiKoguMiHenkyaku,
+        _seitoKaiKoguFunshitsu,
+        _yakuinIgaiKariiru,
+        _mataKashiMudai,
+        _kyokaNashiDenko,
+        _shibutsuKoguViolation,
+        _denkoKiken,
+        _fuyonaToden,
+        _mishinFuteki,
+        _seisoFubi,
+        _kikenbutsuHouchi,
+        _penkiIgaiNagashi,
+        _shiyoKinshi,
+        _gomiBunbetsu,
+        _inpeiKyogi,
+        _sonshoRakugaki,
+      ]),
+      ViolationCategory('PR', [
+        _tareMakuRakka_3rd,
+        _gakujitsuInNashi,
+        _keihinHaifu,
+        _anzenKake,
+        _jyuGoYakuKyokaNashi,
+      ]),
+    ];
+  } else {
+    // 1,2年生用の32項目 (サンプル)
+    return [
+      ViolationCategory('展示', [
+        _sekkeiZutoKotonaru,
+        _kyokaNashiPoleIgai,
+        _rokaHamiDashi,
+        _kaijoJiniNyujoFukano,
+      ]),
+      ViolationCategory('学校祭', [ _taikoGoKitaChukan, _gaishutsuTodoke, _jikanGaiSagyoo, _bashoGaiSagyoo, _igaiSanka, ]),
+      ViolationCategory('資材', [ _koguFunshitsu, _seitoKaiKoguMiHenkyaku, _seitoKaiKoguFunshitsu, _yakuinIgaiKariiru, _mataKashiMudai, _kyokaNashiDenko, _shibutsuKoguViolation, _denkoKiken, _fuyonaToden, _mishinFuteki, _seisoFubi, _kikenbutsuHouchi, _penkiIgaiNagashi, _shiyoKinshi, _gomiBunbetsu, _inpeiKyogi, _sonshoRakugaki, ]),
+      ViolationCategory('PR', [ _tareMakuRakka_1_2nd, _gakujitsuInNashi, _keihinHaifu, _anzenKake, _jyuGoYakuKyokaNashi, ]),
+    ];
+  }
+}
+
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   final _remarksController = TextEditingController();
   List<Map<String, dynamic>> _posts = []; // Firestoreから取得したデータを保持
-  // タブごとの表示用データと集計結果をキャッシュ
+  
   final List<List<Map<String, dynamic>>> _filteredPostsCache = [[], [], [], []];
   final List<Map<int, int>> _classTotalsCache = [{}, {}, {}, {}];
   final List<Map<int, int>> _archivedClassTotalsCache = [{}, {}, {}, {}];
@@ -81,105 +185,13 @@ class _HomeScreenState extends State<HomeScreen>
   int _selectedDeductionPoints = 1; // Default to 1
   String _selectedDeductionReason = '未選択';
 
-  // 違反データの定義 (学年ごとにリストを分ける)
-  List<ViolationCategory> _getViolationData(int grade) {
-    if (grade == 3) {
-      // 3年生用の33項目 (サンプル)
-      return [
-        ViolationCategory('ステージ', [
-          _rehaJikanChoka,
-          _butaiWasuremono,
-          _kikenNaOdogu,
-          _mutodokeWaremono,
-          _jyoenJikokuChoka,
-        ]),
-        ViolationCategory('学校祭', [   
-          _taikoGoKitaChukan,
-          _gaishutsuTodoke,
-          _jikanGaiSagyoo,
-          _bashoGaiSagyoo,
-          _igaiSanka,
-        ]),
-        ViolationCategory('資材', [
-          _koguFunshitsu,
-          _seitoKaiKoguMiHenkyaku,
-          _seitoKaiKoguFunshitsu,
-          _yakuinIgaiKariiru,
-          _mataKashiMudai,
-          _kyokaNashiDenko,
-          _shibutsuKoguViolation,
-          _denkoKiken,
-          _fuyonaToden,
-          _mishinFuteki,
-          _seisoFubi, // Use the centralized definition with maxPoints: 20
-          _kikenbutsuHouchi,
-          _penkiIgaiNagashi,
-          _shiyoKinshi,
-          _gomiBunbetsu,
-          _inpeiKyogi,
-          _sonshoRakugaki,
-        ]),
-        ViolationCategory('PR', [
-          _tareMakuRakka_3rd, // Use the 3rd year specific item
-          _gakujitsuInNashi,
-          _keihinHaifu,
-          _anzenKake,
-          _jyuGoYakuKyokaNashi,
-        ]),
-      ];
-    } else {
-      // 1,2年生用の32項目 (サンプル)
-      return [
-        ViolationCategory('展示', [
-          _sekkeiZutoKotonaru,
-          _kyokaNashiPoleIgai,
-          _rokaHamiDashi,
-          _kaijoJiniNyujoFukano,
-        ]),
-        ViolationCategory('学校祭', [
-          _taikoGoKitaChukan,
-          _gaishutsuTodoke,
-          _jikanGaiSagyoo,
-          _bashoGaiSagyoo,
-          _igaiSanka,
-        ]),
-        ViolationCategory('資材', [
-          _koguFunshitsu,
-          _seitoKaiKoguMiHenkyaku,
-          _seitoKaiKoguFunshitsu,
-          _yakuinIgaiKariiru,
-          _mataKashiMudai,
-          _kyokaNashiDenko,
-          _shibutsuKoguViolation,
-          _denkoKiken,
-          _fuyonaToden,
-          _mishinFuteki,
-          _seisoFubi, // Use the centralized definition with maxPoints: 20
-          _kikenbutsuHouchi,
-          _penkiIgaiNagashi,
-          _shiyoKinshi,
-          _gomiBunbetsu,
-          _inpeiKyogi,
-          _sonshoRakugaki,
-        ]),
-        ViolationCategory('PR', [
-          _tareMakuRakka_1_2nd, // Use the 1,2nd year specific item
-          _gakujitsuInNashi,
-          _keihinHaifu,
-          _anzenKake,
-          _jyuGoYakuKyokaNashi,
-        ]),
-      ];
-    }
-  }
-
   // よく使う項目だけを抽出するヘルパー
   // 利用回数が多い項目をクイック選択用に抽出する
   List<ViolationItem> _getQuickSelectItems() {
     final List<ViolationItem> allItems = [];
     // 全ての学年のカテゴリーから項目を収集
     for (int grade = 1; grade <= 3; grade++) {
-      final categories = _getViolationData(grade);
+      final categories = getViolationDataForGrade(grade);
       for (var category in categories) {
         allItems.addAll(category.items);
       }
@@ -234,7 +246,7 @@ class _HomeScreenState extends State<HomeScreen>
       
       // 選択された項目がどのカテゴリに属するかを特定し、そのカテゴリをアクティブにする
       // これにより、Autocompleteで選択された項目が、下のチップリストでもハイライトされる
-      final allCategories = _getViolationData(_selectedValue1);
+      final allCategories = getViolationDataForGrade(_selectedValue1);
       for (int i = 0; i < allCategories.length; i++) {
         if (allCategories[i].items.contains(item)) {
           _selectedCategoryIndex = i;
@@ -258,52 +270,6 @@ class _HomeScreenState extends State<HomeScreen>
   bool _showHiddenOnly = false; // 非表示(アーカイブ)された投稿のみを表示するかどうか
   bool _isPostFormExpanded = true; // 減点登録フォームが開いているかどうか
   final Map<int, int> _gradeClassFilters = {}; // 学年ごとのクラスフィルター状態 (tabIndex: classNum)
-
-  // Define common violation items to avoid duplication and ensure consistency
-  static const ViolationItem _rehaJikanChoka = ViolationItem('リハで時間超過', 7);
-  static const ViolationItem _butaiWasuremono = ViolationItem('舞台撤退時忘れ物', 1);
-  static const ViolationItem _kikenNaOdogu = ViolationItem('危険な大道具の使用', 12);
-  static const ViolationItem _mutodokeWaremono = ViolationItem('無届での割れ物の使用', 8);
-  static const ViolationItem _jyoenJikokuChoka = ViolationItem('上演時刻超過', 20);
-
-  static const ViolationItem _taikoGoKitaChukan = ViolationItem('退校時間後北館、中館にいる', 1);
-  static const ViolationItem _gaishutsuTodoke = ViolationItem('外出届を携帯せず外出', 20);
-  static const ViolationItem _jikanGaiSagyoo = ViolationItem('指定時間外での作業', 3);
-  static const ViolationItem _bashoGaiSagyoo = ViolationItem('指定場所以外での作業', 3); // Already const
-  static const ViolationItem _igaiSanka = ViolationItem('本校生徒、職員以外の参加', 15);
-
-  static const ViolationItem _koguFunshitsu = ViolationItem('クラス工具紛失、未返却', 5);
-  static const ViolationItem _seitoKaiKoguMiHenkyaku = ViolationItem('生徒会工具未返却', 3);
-  static const ViolationItem _seitoKaiKoguFunshitsu = ViolationItem('生徒会工具紛失', 8);
-  static const ViolationItem _yakuinIgaiKariiru = ViolationItem('役員以外が生徒会工具を借りる', 1);
-  static const ViolationItem _mataKashiMudai = ViolationItem('生徒会工具の又貸し、無断借用', 1);
-  static const ViolationItem _kyokaNashiDenko = ViolationItem('許可無し電動工具使用', 15);
-  static const ViolationItem _shibutsuKoguViolation = ViolationItem('私物工具使用許可証への違反行為', 10);
-  static const ViolationItem _denkoKiken = ViolationItem('電動工具による危険行為', 10);
-  static const ViolationItem _fuyonaToden = ViolationItem('不必要な時間、長時間の盗電行為', 5);
-  static const ViolationItem _mishinFuteki = ViolationItem('ミシンの不適切な取扱い', 3);
-  // This is the item to fix: ensure maxPoints is 20 for all uses
-  static const ViolationItem _seisoFubi = ViolationItem('作業場所の清掃不備', 3, maxPoints: 20, tags: ['ペンキ', 'ガムテープ', '汚れ']);
-  static const ViolationItem _kikenbutsuHouchi = ViolationItem('下校時刻後に危険物を放置', 5);
-  static const ViolationItem _penkiIgaiNagashi = ViolationItem('ペンキを指定場所以外に流す', 12, tags: ['水道', '排水', '汚染']);
-  static const ViolationItem _shiyoKinshi = ViolationItem('使用禁止物の使用', 10);
-  static const ViolationItem _gomiBunbetsu = ViolationItem('ごみの分別不備、不適切廃棄', 3);
-  static const ViolationItem _inpeiKyogi = ViolationItem('隠蔽、虚偽の報告、認めない', 10, maxPoints: 20);
-  static const ViolationItem _sonshoRakugaki = ViolationItem('設備、備品、工具の破損、落書き', 3, maxPoints: 20, tags: ['壊した', '机', '椅子', '壁']);
-
-  // PR items - note the different points for '垂れ幕、装飾が展示中に落下'
-  static const ViolationItem _tareMakuRakka_3rd = ViolationItem('垂れ幕、装飾が展示中に落下', 20); // 3年生用
-  static const ViolationItem _tareMakuRakka_1_2nd = ViolationItem('垂れ幕、装飾が展示中に落下', 10); // 1,2年生用
-  static const ViolationItem _gakujitsuInNashi = ViolationItem('学実の印が無い看板等の使用', 5);
-  static const ViolationItem _keihinHaifu = ViolationItem('景品を配布する', 10, tags: ['お菓子', 'プレゼント']);
-  static const ViolationItem _anzenKake = ViolationItem('安全性に欠けたPR', 5);
-  static const ViolationItem _jyuGoYakuKyokaNashi = ViolationItem('15役から許可の無いPR', 4);
-
-  // Exhibition items (1,2 year specific)
-  static const ViolationItem _sekkeiZutoKotonaru = ViolationItem('提出した設計図と異なる構造で制作', 20);
-  static const ViolationItem _kyokaNashiPoleIgai = ViolationItem('許可なしにポール以外の支柱を使用', 17, tags: ['15役']);
-  static const ViolationItem _rokaHamiDashi = ViolationItem('廊下へ30㎝以上はみ出した制作', 5, tags: ['建築物']);
-  static const ViolationItem _kaijoJiniNyujoFukano = ViolationItem('会場時に来場者が入場できない状態', 5);
 
   @override
   void initState() {
@@ -834,12 +800,13 @@ class _HomeScreenState extends State<HomeScreen>
                       'hiddenReasonImage': hiddenImageUrl,
                       'cancellationTags': selectedTags,
                       'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
-                      'statusHistory': FieldValue.arrayUnion([{
-                        'type': 'finalized_deduction',
-                        'type': 'discussion_started',
-                        'timestamp': DateTime.now().toIso8601String(),
-                        'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}',
-                      }]),
+                      'statusHistory': FieldValue.arrayUnion([
+                        {
+                          'type': 'discussion_started',
+                          'timestamp': DateTime.now().toIso8601String(),
+                          'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}',
+                        }
+                      ]),
                     });
                     if (context.mounted) Navigator.pop(context);
                     } catch (e) {
@@ -1080,7 +1047,7 @@ class _HomeScreenState extends State<HomeScreen>
   static final RegExp _classRegex = RegExp(r'(\d+)組');
 
   Widget _buildTabContent({required bool isPostForm, required int tabIndex}) {
-    final List<ViolationCategory> categories = _getViolationData(_selectedValue1);
+    final List<ViolationCategory> categories = getViolationDataForGrade(_selectedValue1);
 
     // 事前計算済みのデータを使用
     final List<Map<String, dynamic>> sourcePosts = _filteredPostsCache[tabIndex];
@@ -1593,13 +1560,6 @@ class _HomeScreenState extends State<HomeScreen>
 
     final String? status = item['discussionStatus'];
     final bool isDeduction = status == 'deduction'; // 口頭可能(審議中)
-    bool isDeductionExpired = false;
-    if (isDeduction && item['discussionTimestamp'] != null) {
-      try {
-        final dt = DateTime.parse(item['discussionTimestamp']);
-        isDeductionExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1))); // 3営業日経過後に期限切れ
-      } catch (_) {}
-    }
 
     // 3日以内の投稿かどうか判定(ナンバリングの色用)
     final String timestampStr = item['timestamp'] ?? '';
@@ -2045,19 +2005,24 @@ class _HomeScreenState extends State<HomeScreen>
 
   // メソッドを独立させる(構文エラーの修正)
   Widget _buildMemoryImage(String imagePath, Uint8List? fallbackBytes, double? w, double? h, int? cacheW, int? cacheH, double iconSize) {
-    // fallbackBytesがあればデコード不要
-    final bytes = fallbackBytes ?? (imagePath.length > 50 ? base64Decode(imagePath) : null);
-    if (bytes == null) return Icon(Icons.broken_image, size: iconSize);
-    
-    return Image.memory(
-      bytes,
-      width: w, height: h, fit: BoxFit.cover,
-      filterQuality: FilterQuality.low,
-      gaplessPlayback: true,
-      cacheWidth: cacheW,
-      cacheHeight: cacheH,
-      errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize),
-    );
+    try {
+      final bytes = fallbackBytes ?? base64Decode(imagePath);
+      if (bytes.isEmpty) {
+        return Icon(Icons.broken_image, size: iconSize);
+      }
+
+      return Image.memory(
+        bytes,
+        width: w, height: h, fit: BoxFit.cover,
+        filterQuality: FilterQuality.low,
+        gaplessPlayback: true,
+        cacheWidth: cacheW,
+        cacheHeight: cacheH,
+        errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize),
+      );
+    } catch (_) {
+      return Icon(Icons.broken_image, size: iconSize);
+    }
   }
 
   Widget _buildStatusTag(Map<String, dynamic> item, bool isRecent) {

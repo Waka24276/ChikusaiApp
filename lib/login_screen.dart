@@ -13,7 +13,7 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
-  bool _rememberMe = false; // ログイン状態を保持するかどうかのフラグ
+  bool _rememberMe = false;
 
   @override
   void initState() {
@@ -27,7 +27,6 @@ class _LoginScreenState extends State<LoginScreen> {
     if (isLoggedIn) {
       final String? savedUsername = prefs.getString('savedUsername');
       if (mounted && savedUsername != null) {
-        // 画面のビルドが終わった直後にホーム画面へ遷移
         Future.microtask(() {
           if (mounted) {
             Navigator.pushReplacement(
@@ -54,7 +53,6 @@ class _LoginScreenState extends State<LoginScreen> {
         await prefs.setBool('isLoggedIn', true);
         await prefs.setString('savedUsername', _usernameController.text);
       }
-      // ログイン成功時にホーム画面に遷移
       if (!mounted) return;
       Navigator.pushReplacement(
         context,

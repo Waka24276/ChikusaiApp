@@ -1,38 +1,65 @@
 import 'package:flutter/material.dart';
-import 'dart:convert'; // For base64Decode
-import 'package:flutter/foundation.dart'; // kIsWeb を使うため
+import 'dart:convert';
+import 'dart:typed_data';
+import 'package:image_picker/image_picker.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_storage/firebase_storage.dart';
+import 'home_screen.dart'; 
+import 'package:flutter/cupertino.dart';
 
-import 'date_helpers.dart'; // インポートパスを修正
-class PostDetailScreen extends StatelessWidget {
+import 'date_helpers.dart';
+
+class PostDetailScreen extends StatefulWidget {
   final Map<String, dynamic> post;
 
   const PostDetailScreen({super.key, required this.post});
 
   @override
+  State<PostDetailScreen> createState() => _PostDetailScreenState();
+}
+
+class _PostDetailScreenState extends State<PostDetailScreen> {
+  late Map<String, dynamic> _post;
+  Stream<DocumentSnapshot>? _postStream;
+  bool _isUploading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _post = widget.post;
+    // リアルタイムで投稿の変更を監視
+    _postStream = FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).snapshots();
+    _postStream!.listen((snapshot) {
+      if (snapshot.exists && mounted) {
+        final data = Map<String, dynamic>.from(snapshot.data() as Map<String, dynamic>);
+        setState(() => _post = {...data, 'id': snapshot.id});
+      }
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final String classInfo = post['class'] ?? '';
-    final String deductionPoints = post['deductionPoints'] ?? '';
-    final String deductionReason = post['deductionReason'] ?? '';
-    final String remarks = post['remarks'] ?? '';
-    final bool isHidden = post['isHidden'] ?? false;
+    final String classInfo = _post['class'] ?? '';
+    final String deductionPoints = _post['deductionPoints'] ?? '';
+    final String deductionReason = _post['deductionReason'] ?? '';
+    final String remarks = _post['remarks'] ?? '';
+    final bool isHidden = _post['isHidden'] ?? false;
     String timestamp = '';
     try {
-      if (post['timestamp'] != null) {
-        final dt = DateTime.parse(post['timestamp']!);
+      if (_post['timestamp'] != null) {
+        final dt = DateTime.parse(_post['timestamp']!);
         timestamp = dt.toLocal().toString().substring(0, 16).replaceAll('-', '/');
       }
     } catch (e) {
       timestamp = '日時不明';
     }
-    final String name = post['name'] ?? '不明';
-    final String imagePath = post['imagePath'] ?? '';
-    final String hiddenReasonImage = post['hiddenReasonImage'] ?? '';
-    final String restoreReason = post['restoreReason'] ?? ''; // 新しく追加された復元理由
-    final List<dynamic> history = post['statusHistory'] ?? [];
+    final String name = _post['name'] ?? '不明';
+    final String imagePath = _post['imagePath'] ?? '';
+    final String hiddenReasonImage = _post['hiddenReasonImage'] ?? '';
+    final List<dynamic> history = _post['statusHistory'] ?? [];
 
-    // 議論状況と期限の計算
-    final String? status = post['discussionStatus'];
-    final String? discussionTimestampStr = post['discussionTimestamp'];
+    final String? status = _post['discussionStatus'];
+    final String? discussionTimestampStr = _post['discussionTimestamp'];
     String statusLabel = '';
     String remainingTimeText = '';
     Color statusColor = Colors.grey;
@@ -45,9 +72,9 @@ class PostDetailScreen extends StatelessWidget {
         (e) => e is Map && (e['type'] == 'finalized_deduction' || e['type'] == 'archived_undiscussed' || e['type'] == 'discussion_started'),
         orElse: () => null
       );
-      if (refEvent != null) refTimestampStr = refEvent['timestamp'];
+      if (refEvent != null) refTimestampStr = refEvent['timestamp'] as String?;
     }
-    refTimestampStr ??= post['timestamp'];
+    refTimestampStr ??= _post['timestamp'];
 
     if (refTimestampStr != null) {
       try {
@@ -79,6 +106,15 @@ class PostDetailScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(
         title: const Text('投稿詳細'),
+        actions: [
+          if (_isUploading)
+            const Padding(
+              padding: EdgeInsets.only(right: 16.0),
+              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+            )
+          else
+            IconButton(icon: const Icon(Icons.edit_outlined), onPressed: _addOrUpdateImage, tooltip: '写真を追加/変更'),
+        ],
       ),
       body: SingleChildScrollView(
         padding: const EdgeInsets.all(16.0),
@@ -103,7 +139,20 @@ class PostDetailScreen extends StatelessWidget {
             Text('$deductionPoints点', style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 8),
             Text('理由: $deductionReason', style: const TextStyle(fontSize: 16)),
-            const SizedBox(height: 8),
+            // --- 理由と点数を変更するボタンを追加 ---
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _isUploading ? null : _editDeductionDetails,
+                icon: const Icon(Icons.edit, size: 16),
+                label: const Text('理由/点数を変更'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.blueGrey,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                ),
+              ),
+            ),
+            // --- ここまで ---
             Text('備考: ${remarks.isNotEmpty ? remarks : "なし"}', style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 8),
             Text('日時: $timestamp', style: const TextStyle(fontSize: 16)),
@@ -111,7 +160,16 @@ class PostDetailScreen extends StatelessWidget {
             Text('投稿者: $name', style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 16),
             if (imagePath.isNotEmpty)
-              _buildDetailImage(imagePath),
+              _buildDetailImage(imagePath)
+            else
+              Center(
+                child: OutlinedButton.icon(
+                  onPressed: _isUploading ? null : _addOrUpdateImage,
+                  icon: const Icon(Icons.add_a_photo_outlined),
+                  label: const Text('写真を追加'),
+                  style: OutlinedButton.styleFrom(foregroundColor: Colors.grey[700]),
+                ),
+              ),
             if (hiddenReasonImage.isNotEmpty) ...[
               const SizedBox(height: 32),
               const Divider(),
@@ -132,13 +190,115 @@ class PostDetailScreen extends StatelessWidget {
     );
   }
 
+  Future<void> _editDeductionDetails() async {
+    // '1年1組' から '1' を抽出
+    final gradeString = (_post['class']?.toString() ?? '1').substring(0, 1);
+    final int grade = int.tryParse(gradeString) ?? 1;
+
+    // 現在の理由と一致するViolationItemを探す
+    final categories = getViolationDataForGrade(grade);
+    ViolationItem? currentViolation;
+    int initialCategoryIndex = 0;
+    for (int i = 0; i < categories.length; i++) {
+      for (var item in categories[i].items) {
+        if (item.name == _post['deductionReason']) {
+          currentViolation = item;
+          initialCategoryIndex = i;
+          break;
+        }
+      }
+      if (currentViolation != null) break;
+    }
+
+    final result = await showDialog<Map<String, dynamic>>(
+      context: context,
+      builder: (context) =>
+          _ReasonSelectionDialog(
+            categories: categories,
+            initialCategoryIndex: initialCategoryIndex,
+            initialViolation: currentViolation,
+            initialPoints: int.tryParse(_post['deductionPoints']?.toString() ?? '1') ?? 1,
+          ),
+    );
+
+    if (result != null) {
+      final newReason = result['reason'] as String;
+      final newPoints = result['points'] as int;
+
+      setState(() => _isUploading = true);
+      try {
+        await FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).update({
+          'deductionReason': newReason,
+          'deductionPoints': newPoints.toString(),
+          'statusHistory': FieldValue.arrayUnion([{
+            'type': 'edited',
+            'timestamp': DateTime.now().toIso8601String(),
+            'reason': '理由/点数を変更 (旧: ${_post['deductionReason']} / ${_post['deductionPoints']}点)',
+          }]),
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('減点の理由と点数を更新しました。')),
+          );
+        }
+      } catch (e) {
+        debugPrint('更新エラー: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('更新に失敗しました。')),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isUploading = false);
+      }
+    }
+  }
+
+  Future<void> _addOrUpdateImage() async {
+    final picker = ImagePicker();
+    final XFile? pickedFile = await picker.pickImage(
+      source: ImageSource.gallery,
+      maxWidth: 800,
+      maxHeight: 800,
+      imageQuality: 70,
+    );
+
+    if (pickedFile == null) return;
+
+    setState(() => _isUploading = true);
+
+    try {
+      final bytes = await pickedFile.readAsBytes();
+      final ref = FirebaseStorage.instance.ref().child('post_images/${_post['id']}-${DateTime.now().millisecondsSinceEpoch}.jpg');
+      await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      final imageUrl = await ref.getDownloadURL();
+
+      await FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).update({
+        'imagePath': imageUrl,
+      });
+
+      if (mounted) setState(() {
+        _post['imagePath'] = imageUrl;
+        _post.remove('_cachedUint8List'); // 古いキャッシュを削除
+      });
+    } catch (e) {
+      debugPrint('写真のアップロードエラー: $e');
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('エラーが発生しました。')));
+    } finally {
+      if (mounted) setState(() => _isUploading = false);
+    }
+  }
+
   Widget _buildDetailImage(String imagePath) {
     return RepaintBoundary(
       child: LayoutBuilder(
         builder: (context, constraints) {
+          final Uint8List? cachedBytes = _post['_cachedUint8List'] as Uint8List?;
           // 画面幅に合わせてキャッシュサイズを最適化（メモリ節約）
-          final double cacheSize = constraints.maxWidth * 2;
-          
+          final int? cacheWidth = (constraints.maxWidth > 0 && constraints.maxWidth.isFinite)
+              ? (constraints.maxWidth * 2.0).toInt()
+              : null;
+
           try {
             if (imagePath.isEmpty) {
               return const Icon(Icons.image_not_supported, size: 100);
@@ -146,15 +306,51 @@ class PostDetailScreen extends StatelessWidget {
             if (imagePath.startsWith('http')) {
               return Image.network(
                 imagePath,
-                fit: BoxFit.cover,
+                fit: BoxFit.contain,
+                cacheWidth: cacheWidth,
+                errorBuilder: (context, error, stackTrace) {
+                  debugPrint('Image.network error: $error'); // エラーをコンソールに出力
+                  return const Icon(Icons.broken_image, size: 100, color: Colors.red);
+                },
+                loadingBuilder: (context, child, loadingProgress) {
+                  if (loadingProgress == null) return child;
+                  return Center(
+                    child: SizedBox(
+                      width: 32,
+                      height: 32,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        value: loadingProgress.expectedTotalBytes != null
+                            ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
+                            : null,
+                      ),
+                    ),
+                  );
+                },
               );
             }
-            return Image.memory(
-              base64Decode(imagePath),
-              fit: BoxFit.cover,
-              cacheWidth: cacheSize.toInt() > 0 ? cacheSize.toInt() : null,
-            );
-          } catch (_) {
+            // Base64形式の文字列をデコードして表示
+            // ホーム画面と同様に、まずキャッシュされたバイトデータ（_cachedUint8List）を試す
+            if (cachedBytes != null && cachedBytes.isNotEmpty) {
+              return Image.memory(
+                cachedBytes,
+                fit: BoxFit.contain,
+                cacheWidth: cacheWidth,
+              );
+            }
+            // キャッシュがない場合、imagePathがBase64文字列であると仮定してデコードを試みる
+            try {
+              final bytes = base64Decode(imagePath);
+              return Image.memory(
+                bytes,
+                fit: BoxFit.contain,
+                cacheWidth: cacheWidth,
+                errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 100, color: Colors.red),
+              );
+            } catch (e) {
+              return const Icon(Icons.broken_image, size: 100); // デコード失敗
+            }
+          } catch (e) {
             return const Icon(Icons.broken_image, size: 100);
           }
         },
@@ -186,12 +382,17 @@ class PostDetailScreen extends StatelessWidget {
             case 'discussion_started':
               typeLabel = '減点通知書発行';
               icon = Icons.forum_outlined;
-              color = Colors.red;
+              color = const Color.fromARGB(255, 228, 125, 66);
               break;
             case 'finalized_deduction':
               typeLabel = '減点確定';
               icon = Icons.check_circle;
-              color = const Color.fromARGB(255, 255, 196, 0);
+              color = const Color.fromARGB(255, 211, 36, 12);
+              break;
+            case 'edited':
+              typeLabel = '内容変更';
+              icon = Icons.edit;
+              color = Colors.orange;
               break;
             case 'cancelled':
               typeLabel = '減点取り消し確定';
@@ -201,7 +402,7 @@ class PostDetailScreen extends StatelessWidget {
             case 'archived_undiscussed':
               typeLabel = '減点確定';
               icon = Icons.archive_outlined;
-              color = Colors.orange;
+              color = const Color.fromARGB(255, 207, 43, 14);
               break;
             case 'archived':
               typeLabel = '減点通知書発行';
@@ -264,6 +465,146 @@ class PostDetailScreen extends StatelessWidget {
             ],
           );
         }).toList(),
+      ],
+    );
+  }
+}
+
+/// 減点理由と点数を選択するためのダイアログ
+class _ReasonSelectionDialog extends StatefulWidget {
+  final List<ViolationCategory> categories;
+  final int initialCategoryIndex;
+  final ViolationItem? initialViolation;
+  final int initialPoints;
+
+  const _ReasonSelectionDialog({
+    required this.categories,
+    required this.initialCategoryIndex,
+    this.initialViolation,
+    required this.initialPoints,
+  });
+
+  @override
+  State<_ReasonSelectionDialog> createState() => _ReasonSelectionDialogState();
+}
+
+class _ReasonSelectionDialogState extends State<_ReasonSelectionDialog> {
+  late int _selectedCategoryIndex;
+  late ViolationItem? _selectedViolation;
+  late int _selectedPoints;
+  late FixedExtentScrollController _pointsPickerController;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedCategoryIndex = widget.initialCategoryIndex;
+    _selectedViolation = widget.initialViolation;
+    _selectedPoints = widget.initialPoints;
+
+    int initialPickerIndex = 0;
+    if (_selectedViolation != null) {
+      initialPickerIndex = _selectedPoints - _selectedViolation!.minPoints;
+      if (initialPickerIndex < 0) initialPickerIndex = 0;
+    }
+    _pointsPickerController = FixedExtentScrollController(initialItem: initialPickerIndex);
+  }
+
+  @override
+  void dispose() {
+    _pointsPickerController.dispose();
+    super.dispose();
+  }
+
+  void _onViolationSelected(ViolationItem item) {
+    setState(() {
+      _selectedViolation = item;
+      _selectedPoints = item.minPoints;
+    });
+    if (_pointsPickerController.hasClients) {
+      _pointsPickerController.jumpToItem(0);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final currentCategoryItems = widget.categories[_selectedCategoryIndex].items;
+
+    return AlertDialog(
+      title: const Text('理由/点数の変更'),
+      content: SizedBox(
+        width: double.maxFinite,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // カテゴリ選択
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: List.generate(widget.categories.length, (index) {
+                  final category = widget.categories[index];
+                  final isSelected = index == _selectedCategoryIndex;
+                  return ChoiceChip(
+                    label: Text(category.title),
+                    selected: isSelected,
+                    onSelected: (selected) {
+                      if (selected) {
+                        setState(() {
+                          _selectedCategoryIndex = index;
+                          _selectedViolation = null; // カテゴリ変更で項目選択をリセット
+                        });
+                      }
+                    },
+                  );
+                }),
+              ),
+              const Divider(height: 24),
+              // 項目選択
+              Wrap(
+                spacing: 8,
+                runSpacing: 4,
+                children: currentCategoryItems.map((item) {
+                  final isSelected = _selectedViolation == item;
+                  return ChoiceChip(
+                    label: Text(item.name),
+                    selected: isSelected,
+                    onSelected: (_) => _onViolationSelected(item),
+                    selectedColor: Theme.of(context).primaryColor,
+                    labelStyle: TextStyle(color: isSelected ? Colors.white : Colors.black),
+                  );
+                }).toList(),
+              ),
+              if (_selectedViolation != null && _selectedViolation!.minPoints != _selectedViolation!.maxPoints) ...[
+                const SizedBox(height: 16),
+                const Text('点数選択:', style: TextStyle(fontWeight: FontWeight.bold)),
+                SizedBox(
+                  height: 100,
+                  child: CupertinoPicker(
+                    scrollController: _pointsPickerController,
+                    itemExtent: 32.0,
+                    onSelectedItemChanged: (index) {
+                      setState(() => _selectedPoints = _selectedViolation!.minPoints + index);
+                    },
+                    children: List.generate(
+                      _selectedViolation!.maxPoints - _selectedViolation!.minPoints + 1,
+                          (index) => Center(child: Text('${_selectedViolation!.minPoints + index}')),
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(context), child: const Text('キャンセル')),
+        ElevatedButton(
+          onPressed: _selectedViolation == null ? null : () {
+            Navigator.pop(context, {'reason': _selectedViolation!.name, 'points': _selectedPoints});
+          },
+          child: const Text('変更を保存'),
+        ),
       ],
     );
   }
