@@ -271,6 +271,8 @@ class _HomeScreenState extends State<HomeScreen>
   bool _isPostFormExpanded = true; // 減点登録フォームが開いているかどうか
   final Map<int, int> _gradeClassFilters = {}; // 学年ごとのクラスフィルター状態 (tabIndex: classNum)
 
+  static const int _minRequiredTags = 5; // 担当者タグの最低選択数
+
   @override
   void initState() {
     super.initState();
@@ -490,7 +492,7 @@ class _HomeScreenState extends State<HomeScreen>
                 actions: [
                   TextButton(onPressed: isUploading ? null : () => Navigator.pop(context), child: const Text('キャンセル')),
                   ElevatedButton(
-                    onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                    onPressed: (isUploading || selectedTags.length < _minRequiredTags) ? null : () async {
                       setDialogState(() => isUploading = true);
                       try {
                         await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
@@ -513,7 +515,7 @@ class _HomeScreenState extends State<HomeScreen>
                     child: const Text('減点取り消し'),
                   ),
                   ElevatedButton(
-                    onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                    onPressed: (isUploading || selectedTags.length < _minRequiredTags) ? null : () async {
                       setDialogState(() => isUploading = true);
                       try {
                         await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
@@ -573,7 +575,7 @@ class _HomeScreenState extends State<HomeScreen>
                       const SizedBox(height: 16),
                       const Align(
                         alignment: Alignment.centerLeft,
-                        child: Text('タグ選択 (5つ以上選択してください):', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
+                        child: Text('タグ選択 ($_minRequiredTagsつ以上選択してください):', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold)),
                       ),
                       const SizedBox(height: 8),
                       Wrap(
@@ -602,7 +604,7 @@ class _HomeScreenState extends State<HomeScreen>
                 actions: [
                   TextButton(onPressed: isUploading ? null : () => Navigator.pop(context), child: const Text('キャンセル')),
                   ElevatedButton(
-                    onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                    onPressed: (isUploading || selectedTags.length < _minRequiredTags) ? null : () async {
                       setDialogState(() => isUploading = true);
                       try {
                         await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
@@ -626,7 +628,7 @@ class _HomeScreenState extends State<HomeScreen>
                     child: const Text('減点取り消し'),
                   ),
                   ElevatedButton(
-                    onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                    onPressed: (isUploading || selectedTags.length < _minRequiredTags) ? null : () async {
                       setDialogState(() => isUploading = true);
                       try {
                         await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
@@ -747,7 +749,7 @@ class _HomeScreenState extends State<HomeScreen>
                   child: const Text('キャンセル'),
                 ),
                 ElevatedButton(
-                  onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                  onPressed: (isUploading || selectedTags.length < _minRequiredTags) ? null : () async {
                     setDialogState(() => isUploading = true);
                     try {
                       String hiddenImageUrl = '';
@@ -780,7 +782,7 @@ class _HomeScreenState extends State<HomeScreen>
                   child: const Text('減点取り消し'),
                 ),
                 ElevatedButton(
-                  onPressed: (isUploading || selectedTags.length < 5) ? null : () async {
+                  onPressed: (isUploading || selectedTags.length < _minRequiredTags) ? null : () async {
                     setDialogState(() => isUploading = true);
                     try {
                     String hiddenImageUrl = '';

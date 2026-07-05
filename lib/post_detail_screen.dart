@@ -441,23 +441,25 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                         padding: const EdgeInsets.only(top: 4),
                         child: Text(event['reason'], style: const TextStyle(fontSize: 14, color: Colors.black87)),
                       ),
-                    if (event['tags'] != null && (event['tags'] as List).isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 8),
-                        child: Wrap(
-                          spacing: 4,
-                          runSpacing: 4,
-                          children: (event['tags'] as List).map((tag) => Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: Colors.blueGrey[50],
-                              borderRadius: BorderRadius.circular(4),
-                              border: Border.all(color: Colors.blueGrey[200]!),
-                            ),
-                            child: Text(tag.toString(), style: TextStyle(fontSize: 11, color: Colors.blueGrey[700])),
-                          )).toList(),
-                        ),
-                      ),
+                    if (event['tags'] is List && (event['tags'] as List).isNotEmpty)
+                      Builder(builder: (context) {
+                        final List<dynamic> tags = event['tags'];
+                        return Padding(
+                          padding: const EdgeInsets.only(top: 8),
+                          child: Wrap(
+                            spacing: 4,
+                            runSpacing: 4,
+                            children: tags.map((tag) => Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: Colors.blueGrey[50],
+                                borderRadius: BorderRadius.circular(4),
+                                border: Border.all(color: Colors.blueGrey[200]!),
+                              ),
+                              child: Text(tag.toString(), style: TextStyle(fontSize: 11, color: Colors.blueGrey[700])),
+                            )).toList(),
+                        );
+                      }),
                     const SizedBox(height: 20),
                   ],
                 ),
