@@ -1,8 +1,5 @@
 import 'dart:async';
-
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -14,43 +11,24 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _emailController = TextEditingController();
+  final _nameController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _rememberMe = false;
   bool _isLoading = false;
   String? _errorMessage;
-  Timer? _autoLoginTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    _autoLogin();
-  }
-
-  // アプリ起動時にFirebaseのログイン状態をチェックする
-  Future<void> _autoLogin() async {
-    _autoLoginTimer?.cancel();
-    _autoLoginTimer = Timer(const Duration(seconds: 1), () {
-      if (mounted && FirebaseAuth.instance.currentUser != null) {
-        _navigateToHome(FirebaseAuth.instance.currentUser!);
-      }
-    });
-  }
-
-  void _navigateToHome(User user) {
+  
+  void _navigateToHome(String username) {
     if (!mounted) return;
-    // ユーザー名が設定されていなければメールアドレスの@より前を使う
-    final username = user.displayName ?? user.email?.split('@').first ?? '不明';
+    // 入力された名前をホーム画面に渡す
     Navigator.pushReplacement(
       context,
-      MaterialPageRoute(builder: (context) => HomeScreen(username: username)),
+      MaterialPageRoute(builder: (context) => HomeScreen(username: username.trim())),
     );
   }
 
   @override
   void dispose() {
-    _autoLoginTimer?.cancel();
-    _emailController.dispose();
+    _nameController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
@@ -62,34 +40,21 @@ class _LoginScreenState extends State<LoginScreen> {
         _errorMessage = null;
       });
 
-      try {
-        // Firebase Authでログイン試行
-        final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
-          email: _emailController.text.trim(),
-          password: _passwordController.text.trim(),
-        );
+      // 処理を擬似的に遅らせて、操作感を与える
+      await Future.delayed(const Duration(milliseconds: 500));
 
-        if (credential.user != null) {
-          if (_rememberMe) {
-            // SharedPreferencesはログイン状態の永続化には使わない
-            // Firebase SDKが自動でセッションを管理してくれる
-          }
-          _navigateToHome(credential.user!);
-        }
-      } on FirebaseAuthException catch (e) {
-        // エラーハンドリング
-        if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential') {
-          _errorMessage = 'メールアドレスまたはパスワードが正しくありません。';
-        } else if (e.code == 'invalid-email') {
-          _errorMessage = 'メールアドレスの形式が正しくありません。';
-        } else {
-          _errorMessage = 'エラーが発生しました: ${e.message}';
-        }
-      } catch (e) {
-        _errorMessage = '予期せぬエラーが発生しました。';
-      } finally {
+      const String correctPassword = 'chigusa1516';
+
+      if (_passwordController.text.trim() == correctPassword) {
+        // パスワードが一致したらホーム画面へ
+        _navigateToHome(_nameController.text);
+      } else {
+        // パスワードが違ったらエラーメッセージを表示
         if (mounted) {
-          setState(() => _isLoading = false);
+          setState(() {
+            _errorMessage = 'パスワードが正しくありません。';
+            _isLoading = false;
+          });
         }
       }
     }
@@ -110,17 +75,17 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const SizedBox(height: 40),
               TextFormField(
-                controller: _emailController,
+                controller: _nameController,
                 decoration: const InputDecoration(
-                  labelText: 'メールアドレス',
+                  labelText: '名前',
                   border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.email_outlined),
+                  prefixIcon: Icon(Icons.person_outline),
                 ),
-                keyboardType: TextInputType.emailAddress,
-                autofillHints: const [AutofillHints.email],
+                keyboardType: TextInputType.text,
+                autofillHints: const [AutofillHints.username],
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
-                    return 'メールアドレスを入力してください';
+                    return '名前を入力してください';
                   }
                   return null;
                 },

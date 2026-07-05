@@ -315,7 +315,7 @@ class _HomeScreenState extends State<HomeScreen>
       source: ImageSource.gallery,
       maxWidth: 800, // 軽量化:画像を最大800pxにリサイズ
       maxHeight: 800,
-      imageQuality: 70, // 軽量化:画質を少し落として容量削減
+      imageQuality: 80, // 軽量化と画質維持のバランスを調整
     );
     if (pickedFile != null) {
       final bytes = await pickedFile.readAsBytes(); // 画像をバイトデータとして読み込む
@@ -338,16 +338,16 @@ class _HomeScreenState extends State<HomeScreen>
           final data = Map<String, dynamic>.from(doc.data());
           data['id'] = doc.id; // ドキュメントIDを保持(削除や更新に必要)
           
-          // 画像がBase64の場合、ここで一度だけデコードしてバイトデータとして保持しておく
-          // 古い 'image' フィールドも考慮に入れる
+          // 古い 'image' フィールド(Base64)と新しい 'imagePath' (URL) の両方に対応
           final String imagePath = data['imagePath'] ?? data['image'] ?? '';
           if (imagePath.isNotEmpty) {
             data['imagePath'] = imagePath; // データを imagePath に統一
-          }
-          if (imagePath.isNotEmpty && !imagePath.startsWith('http') && data['_cachedUint8List'] == null) {
-            try {
-              data['_cachedUint8List'] = base64Decode(imagePath);
-            } catch (_) {}
+            // Base64形式の画像であればデコードしてキャッシュしておく
+            if (!imagePath.startsWith('http')) {
+              try {
+                data['_cachedUint8List'] = base64Decode(imagePath);
+              } catch (_) {}
+            }
           }
           return data;
         }).toList();
@@ -958,9 +958,13 @@ class _HomeScreenState extends State<HomeScreen>
               title: Text(_showHiddenOnly ? '取り消した減点' : 'ホーム'),
               leading: IconButton(
                 icon: const Icon(Icons.meeting_room),
-                onPressed: () async {
-                  // Firebaseからサインアウトする
-                  await FirebaseAuth.instance.signOut();
+                onPressed: () {
+                  // ログイン画面に戻る
+                  Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
+                  // 注意: main.dartで '/login': (context) => LoginScreen() のような
+                  // ルート設定がされている必要があります。
+                  // もし設定がない場合は、この修正後にエラーになる可能性があります。
+                  // その場合はお申し付けください。
                 },
                 tooltip: 'ログアウト',
               ),
@@ -1992,10 +1996,20 @@ class _HomeScreenState extends State<HomeScreen>
     final int? cacheH = (h != null && h > 0 && h.isFinite && (h * 2.0).toInt() > 0) ? (h * 2.0).toInt() : null;
 
     // 1. URL形式の画像がある場合
-    if (imagePath != null && imagePath.startsWith('http')) {
+    if (imagePath != null && imagePath.startsWith('http')) { // URL形式
       return Image.network(
         imagePath,
         width: w, height: h, fit: BoxFit.cover,
+        // キャッシュされたバイトデータがあれば、読み込み中にそれを表示する
+        frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
+          if (wasSynchronouslyLoaded) return child;
+          return AnimatedSwitcher(
+            duration: const Duration(milliseconds: 200),
+            child: frame != null ? child : (cachedBytes != null && cachedBytes.isNotEmpty
+                ? Image.memory(cachedBytes, width: w, height: h, fit: BoxFit.cover, gaplessPlayback: true)
+                : Center(child: CupertinoActivityIndicator(radius: iconSize / 4))),
+          );
+        },
         cacheWidth: cacheW, cacheHeight: cacheH,
         errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]),
         loadingBuilder: (context, child, progress) {
@@ -2009,16 +2023,20 @@ class _HomeScreenState extends State<HomeScreen>
       );
     }
 
-    // 2. Base64形式の画像、またはキャッシュされたバイトデータがある場合
-    return _buildMemoryImage(imagePath, cachedBytes, w, h, cacheW, cacheH, iconSize);
+    // 2. Base64形式の画像、またはキャッシュされたバイトデータがある場合 (古いデータ形式への対応)
+    final bytesToUse = cachedBytes ?? (imagePath != null && imagePath.isNotEmpty ? base64Decode(imagePath) : null);
+    if (bytesToUse != null && bytesToUse.isNotEmpty) {
+      return _buildMemoryImage(bytesToUse, w, h, cacheW, cacheH, iconSize);
+    }
+    return Icon(Icons.image_not_supported, size: iconSize, color: Colors.grey[300]);
   }
 
   // メソッドを独立させる(構文エラーの修正)
-  Widget _buildMemoryImage(String? imagePath, Uint8List? fallbackBytes, double? w, double? h, int? cacheW, int? cacheH, double iconSize) {
+  Widget _buildMemoryImage(Uint8List? imageBytes, double? w, double? h, int? cacheW, int? cacheH, double iconSize) {
     try {
-      final bytes = fallbackBytes ?? base64Decode(imagePath ?? '');
-      if (bytes.isEmpty) {
-        return Icon(Icons.image_not_supported, size: iconSize, color: Colors.grey[300]);
+      final bytes = imageBytes;
+      if (bytes == null || bytes.isEmpty) {
+        return Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]);
       }
 
       return Image.memory(

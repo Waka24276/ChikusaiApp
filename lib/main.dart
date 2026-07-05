@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'firebase_options.dart'; // flutterfire configureで自動生成されるファイル
-import 'home_screen.dart';
 import 'login_screen.dart';
 
 Future<void> initializeFirebase() async {
@@ -36,20 +35,12 @@ class MyApp extends StatelessWidget {
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         scaffoldBackgroundColor: Colors.white,
       ),
-      home: StreamBuilder<User?>(
-        initialData: null,
-        stream: Firebase.apps.isNotEmpty
-            ? FirebaseAuth.instance.authStateChanges()
-            : Stream<User?>.empty(),
-        builder: (context, authSnapshot) {
-          if (authSnapshot.hasData) {
-            final user = authSnapshot.data!;
-            final username = user.displayName ?? user.email?.split('@').first ?? '不明';
-            return HomeScreen(username: username);
-          }
-          return const LoginScreen();
-        },
-      ),
+      // アプリの開始画面をLoginScreenに設定
+      initialRoute: '/login',
+      routes: {
+        // '/login' という名前の画面としてLoginScreenを登録
+        '/login': (context) => const LoginScreen(),
+      },
     );
   }
 }
