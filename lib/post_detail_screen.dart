@@ -27,14 +27,46 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   void initState() {
     super.initState();
     _post = widget.post;
+    _migrateOldImageIfNeeded();
+
     // リアルタイムで投稿の変更を監視
     _postStream = FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).snapshots();
     _postStream!.listen((snapshot) {
       if (snapshot.exists && mounted) {
         final data = Map<String, dynamic>.from(snapshot.data() as Map<String, dynamic>);
-        setState(() => _post = {...data, 'id': snapshot.id});
+        setState(() => _post = {...data, 'id': snapshot.id, '_cachedUint8List': _post['_cachedUint8List']});
       }
     });
+  }
+
+  /// 古い形式(Base64)の画像を検出し、新しいURL形式に自動で変換・更新する
+  Future<void> _migrateOldImageIfNeeded() async {
+    final String imagePath = _post['imagePath'] ?? '';
+    // Base64形式の画像（httpで始まらない）で、まだ変換処理中でない場合
+    if (imagePath.isNotEmpty && !imagePath.startsWith('http')) {
+      if (!mounted) return;
+      setState(() => _isUploading = true); // 変換中インジケーターを表示
+
+      try {
+        final bytes = base64Decode(imagePath);
+        _post['_cachedUint8List'] = bytes; // まずはメモリにキャッシュして表示
+
+        // Firebase Storageにアップロードして新しいURLを取得
+        final ref = FirebaseStorage.instance.ref().child('post_images/${_post['id']}-${DateTime.now().millisecondsSinceEpoch}.jpg');
+        await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+        final newImageUrl = await ref.getDownloadURL();
+
+        // Firestoreの投稿データを新しい画像URLで更新
+        await FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).update({
+          'imagePath': newImageUrl,
+        });
+
+      } catch (e) {
+        debugPrint('画像形式の自動変換に失敗しました: $e');
+      } finally {
+        if (mounted) setState(() => _isUploading = false);
+      }
+    }
   }
 
   @override
@@ -291,7 +323,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   Widget _buildDetailImage(String imagePath) {
     return RepaintBoundary(
-      child: LayoutBuilder(
+      child: GestureDetector(
+        onTap: _isUploading ? null : _addOrUpdateImage,
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            LayoutBuilder(
         builder: (context, constraints) {
           final Uint8List? cachedBytes = _post['_cachedUint8List'] as Uint8List?;
           // 画面幅に合わせてキャッシュサイズを最適化（メモリ節約）
@@ -354,6 +391,23 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             return const Icon(Icons.broken_image, size: 100);
           }
         },
+      ),
+            if (_isUploading)
+              Container(
+                color: Colors.black.withOpacity(0.5),
+                child: const Center(
+                  child: CircularProgressIndicator(color: Colors.white),
+                ),
+              )
+            else
+              const Icon(
+                Icons.edit,
+                color: Colors.white,
+                size: 40,
+                shadows: [Shadow(color: Colors.black, blurRadius: 15.0)],
+              ),
+          ],
+        ),
       ),
     );
   }
