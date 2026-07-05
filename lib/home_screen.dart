@@ -890,7 +890,6 @@ class _HomeScreenState extends State<HomeScreen>
             'deductionReason': _selectedDeductionReason,
             'remarks': _remarksController.text,
             'imagePath': imageUrl,
-            'postNumber': nextNumber, // 確定した番号を保存
             'timestamp': DateTime.now().toIso8601String(),
             'name': widget.username,
             'isHidden': false,
