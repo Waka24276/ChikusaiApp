@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -11,53 +12,81 @@ class LoginScreen extends StatefulWidget {
 
 class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _usernameController = TextEditingController();
+  final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
   bool _rememberMe = false;
+  bool _isLoading = false;
+  String? _errorMessage;
 
   @override
   void initState() {
     super.initState();
-    _checkLoginStatus();
+    _autoLogin();
   }
 
-  Future<void> _checkLoginStatus() async {
-    final prefs = await SharedPreferences.getInstance();
-    final bool isLoggedIn = prefs.getBool('isLoggedIn') ?? false;
-    if (isLoggedIn) {
-      final String? savedUsername = prefs.getString('savedUsername');
-      if (mounted && savedUsername != null) {
-        Future.microtask(() {
-          if (mounted) {
-            Navigator.pushReplacement(
-              context,
-              MaterialPageRoute(builder: (context) => HomeScreen(username: savedUsername)),
-            );
-          }
-        });
-      }
+  // アプリ起動時にFirebaseのログイン状態をチェックする
+  Future<void> _autoLogin() async {
+    // 少し待ってから認証状態を確認
+    await Future.delayed(const Duration(seconds: 1));
+    if (FirebaseAuth.instance.currentUser != null) {
+      _navigateToHome(FirebaseAuth.instance.currentUser!);
     }
+  }
+
+  void _navigateToHome(User user) {
+    if (!mounted) return;
+    // ユーザー名が設定されていなければメールアドレスの@より前を使う
+    final username = user.displayName ?? user.email?.split('@').first ?? '不明';
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(builder: (context) => HomeScreen(username: username)),
+    );
   }
 
   @override
   void dispose() {
-    _usernameController.dispose();
+    _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
   }
 
   Future<void> _login() async {
-    if (_formKey.currentState!.validate()) {
-      if (_rememberMe) {
-        final prefs = await SharedPreferences.getInstance();
-        await prefs.setBool('isLoggedIn', true);
-        await prefs.setString('savedUsername', _usernameController.text);
+    if (_formKey.currentState?.validate() ?? false) {
+      setState(() {
+        _isLoading = true;
+        _errorMessage = null;
+      });
+
+      try {
+        // Firebase Authでログイン試行
+        final credential = await FirebaseAuth.instance.signInWithEmailAndPassword(
+          email: _emailController.text.trim(),
+          password: _passwordController.text.trim(),
+        );
+
+        if (credential.user != null) {
+          if (_rememberMe) {
+            // SharedPreferencesはログイン状態の永続化には使わない
+            // Firebase SDKが自動でセッションを管理してくれる
+          }
+          _navigateToHome(credential.user!);
+        }
+      } on FirebaseAuthException catch (e) {
+        // エラーハンドリング
+        if (e.code == 'user-not-found' || e.code == 'wrong-password' || e.code == 'invalid-credential') {
+          _errorMessage = 'メールアドレスまたはパスワードが正しくありません。';
+        } else if (e.code == 'invalid-email') {
+          _errorMessage = 'メールアドレスの形式が正しくありません。';
+        } else {
+          _errorMessage = 'エラーが発生しました: ${e.message}';
+        }
+      } catch (e) {
+        _errorMessage = '予期せぬエラーが発生しました。';
+      } finally {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
-      if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(builder: (context) => HomeScreen(username: _usernameController.text)),
-      );
     }
   }
 
@@ -67,22 +96,26 @@ class _LoginScreenState extends State<LoginScreen> {
       appBar: AppBar(
         title: const Text('ログイン'),
       ),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(24.0),
         child: Form(
           key: _formKey,
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
+              const SizedBox(height: 40),
               TextFormField(
-                controller: _usernameController,
+                controller: _emailController,
                 decoration: const InputDecoration(
-                  labelText: '名前',
+                  labelText: 'メールアドレス',
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.email_outlined),
                 ),
+                keyboardType: TextInputType.emailAddress,
+                autofillHints: const [AutofillHints.email],
                 validator: (value) {
-                  if (value == null || value.isEmpty) {
-                    return '名前を入力してください';
+                  if (value == null || value.trim().isEmpty) {
+                    return 'メールアドレスを入力してください';
                   }
                   return null;
                 },
@@ -93,19 +126,18 @@ class _LoginScreenState extends State<LoginScreen> {
                 decoration: const InputDecoration(
                   labelText: 'パスワード',
                   border: OutlineInputBorder(),
+                  prefixIcon: Icon(Icons.lock_outline),
                 ),
                 obscureText: true,
+                autofillHints: const [AutofillHints.password],
                 validator: (value) {
                   if (value == null || value.isEmpty) {
                     return 'パスワードを入力してください';
                   }
-                  if (value != 'chigusa1516') { // DANGER: Hardcoded password
-                    return 'パスワードが正しくありません';
-                  }
                   return null;
                 },
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
               CheckboxListTile(
                 title: const Text('ログイン状態を保持する'),
                 value: _rememberMe,
@@ -118,9 +150,20 @@ class _LoginScreenState extends State<LoginScreen> {
                 controlAffinity: ListTileControlAffinity.leading,
               ),
               const SizedBox(height: 24),
+              if (_errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 16.0),
+                  child: Text(_errorMessage!, style: const TextStyle(color: Colors.red)),
+                ),
               ElevatedButton(
-                onPressed: _login,
-                child: const Text('ログイン'),
+                onPressed: _isLoading ? null : _login,
+                style: ElevatedButton.styleFrom(
+                  minimumSize: const Size(double.infinity, 50),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                ),
+                child: _isLoading
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : const Text('ログイン'),
               ),
             ],
           ),

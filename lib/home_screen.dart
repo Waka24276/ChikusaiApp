@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart'; // Firestoreのインポート
 import 'package:firebase_storage/firebase_storage.dart'; // Storageのインポート
+import 'package:firebase_auth/firebase_auth.dart' as firebase_auth; // Authのインポート
 import 'dart:async'; // StreamSubscriptionのため
 import 'package:flutter/foundation.dart'; // kIsWeb を使うため
 import 'post_detail_screen.dart'; // Import the new detail screen
@@ -962,9 +963,8 @@ class _HomeScreenState extends State<HomeScreen>
               leading: IconButton(
                 icon: const Icon(Icons.meeting_room),
                 onPressed: () async {
-                  final prefs = await SharedPreferences.getInstance();
-                  await prefs.remove('isLoggedIn'); // ログイン保持設定をクリア
-                  if (mounted) Navigator.pop(context);
+                  // Firebaseからサインアウトする
+                  await FirebaseAuth.instance.signOut();
                 },
                 tooltip: 'ログアウト',
               ),
