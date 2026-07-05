@@ -260,7 +260,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     final newRemarks = await showDialog<String>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('備考の編集'),
+        title: const Text('備考を編集'),
         content: TextField(
           controller: controller,
           autofocus: true,
