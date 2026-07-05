@@ -33,25 +33,28 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       _post['imagePath'] = _post['image'] ?? '';
     }
 
-    _migrateOldImageIfNeeded();
-
     // リアルタイムで投稿の変更を監視
     _postStream = FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).snapshots();
     _postStream!.listen((snapshot) {
       if (snapshot.exists && mounted) {
-        final data = Map<String, dynamic>.from(snapshot.data() as Map<String, dynamic>);
+        final data = snapshot.data() as Map<String, dynamic>;
         setState(() => _post = {...data, 'id': snapshot.id, '_cachedUint8List': _post['_cachedUint8List']});
       }
+    });
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _migrateOldImageIfNeeded();
     });
   }
 
   /// 古い形式(Base64)の画像を検出し、新しいURL形式に自動で変換・更新する
   Future<void> _migrateOldImageIfNeeded() async {
+    if (!mounted || _isUploading) return;
+
     // 'image' フィールドも考慮に入れる
     final String imagePath = _post['imagePath'] ?? _post['image'] ?? '';
-    if (imagePath.isEmpty) {
-      return; // 変換対象の画像がない場合は何もしない
-    }
+    // 変換対象の画像がない、または既にURL形式の場合は何もしない
+    if (imagePath.isEmpty || imagePath.startsWith('http')) return;
 
     // Base64形式の画像（httpで始まらない）で、まだ変換処理中でない場合
     if (!_isUploading && imagePath.isNotEmpty && !imagePath.startsWith('http')) {
@@ -59,18 +62,23 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       setState(() => _isUploading = true); // 変換中インジケーターを表示
 
       try {
-        final bytes = base64Decode(imagePath);
-        _post['_cachedUint8List'] = bytes; // まずはメモリにキャッシュして表示
+        // まずはメモリにキャッシュして表示を試みる
+        if (_post['_cachedUint8List'] == null) {
+          _post['_cachedUint8List'] = base64Decode(imagePath);
+          if (mounted) setState(() {}); // キャッシュした画像でUIを即時更新
+        }
+        final bytes = _post['_cachedUint8List'] as Uint8List;
 
         // Firebase Storageにアップロードして新しいURLを取得
         final ref = FirebaseStorage.instance.ref().child('post_images/${_post['id']}-${DateTime.now().millisecondsSinceEpoch}.jpg');
         await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
         final newImageUrl = await ref.getDownloadURL();
 
-        // Firestoreの投稿データを新しい画像URLで更新
-        await FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).update({
-          'imagePath': newImageUrl,
-        });
+        if (mounted) {
+          // Firestoreの投稿データを新しい画像URLで更新
+          await FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).update({'imagePath': newImageUrl});
+          _post['imagePath'] = newImageUrl; // ローカルのデータも更新
+        }
 
       } catch (e) {
         debugPrint('画像形式の自動変換に失敗しました: $e');
@@ -82,9 +90,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // ビルド時に画像のマイグレーションが必要かチェック
-    _migrateOldImageIfNeeded();
-
     final String classInfo = _post['class'] ?? '';
     final String deductionPoints = _post['deductionPoints'] ?? '';
     final String deductionReason = _post['deductionReason'] ?? '';
@@ -396,15 +401,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       final bytes = await pickedFile.readAsBytes();
       final ref = FirebaseStorage.instance.ref().child('post_images/${_post['id']}-${DateTime.now().millisecondsSinceEpoch}.jpg');
       await ref.putData(bytes, SettableMetadata(contentType: 'image/jpeg'));
+      // setStateを呼ぶ前に新しいURLを取得
       final imageUrl = await ref.getDownloadURL();
 
       await FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).update({
-        'imagePath': imageUrl,
+        'imagePath': imageUrl, // Firestoreを更新
       });
 
       if (mounted) setState(() {
-        _post['imagePath'] = imageUrl;
-        _post.remove('_cachedUint8List'); // 古いキャッシュを削除
+        _post['imagePath'] = imageUrl; // ローカルのデータも更新
+        _post['_cachedUint8List'] = bytes; // 新しい画像でキャッシュを更新
       });
     } catch (e) {
       debugPrint('写真のアップロードエラー: $e');
@@ -416,76 +422,66 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   Widget _buildDetailImage(String imagePath, {bool isFullScreen = false}) {
     final Uint8List? cachedBytes = _post['_cachedUint8List'] as Uint8List?;
+    final String effectiveImagePath = imagePath.isNotEmpty ? imagePath : (_post['image'] ?? '');
 
     return RepaintBoundary(
       child: GestureDetector(
-        onTap: isFullScreen ? null : () => _showFullScreenImage(imagePath, cachedBytes),
+        onTap: isFullScreen ? null : () => _showFullScreenImage(effectiveImagePath, cachedBytes),
         child: Stack(
           alignment: Alignment.center,
           children: [
-            // 1. URL形式の画像があれば、それを最優先で表示
-            if (imagePath.startsWith('http'))
-              Hero(
-                tag: 'image_${_post['id']}',
-                child: Image.network(
-                  imagePath,
-                  key: ValueKey(imagePath), // URLが変わったらウィジェットを再構築
-                  fit: BoxFit.contain,
-                  loadingBuilder: (context, child, loadingProgress) {
-                    if (loadingProgress == null) return child;
-                    // 読み込み中も、もしキャッシュがあればそれを表示しておく
-                    if (cachedBytes != null && cachedBytes.isNotEmpty) {
-                      return Image.memory(cachedBytes, fit: BoxFit.contain);
-                    }
-                    return const Center(child: CircularProgressIndicator());
-                  },
-                  errorBuilder: (context, error, stackTrace) {
-                    debugPrint('Image.network error: $error');
-                    return const Icon(Icons.broken_image, size: 100, color: Colors.red);
-                  },
-                ),
-              )
-            // 2. URL形式でない場合、キャッシュまたはBase64のデコードを試みる
-            else if (imagePath.isNotEmpty)
-              Builder(builder: (context) {
-                try {
-                  // メモリキャッシュがあればそれを使う、なければデコードする
-                  final bytes = cachedBytes ?? base64Decode(imagePath);
-                  return Hero(
-                    tag: 'image_${_post['id']}',
-                    child: Image.memory(
-                      bytes,
-                      key: ValueKey(imagePath.substring(0, (imagePath.length > 20) ? 20 : imagePath.length)), // Base64の先頭部分でキーを作成
-                      fit: BoxFit.contain,
-                      errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 100, color: Colors.red),
-                    ),
-                  );
-                } catch (e) {
-                  debugPrint('Base64 decode error: $e');
-                  return const Icon(Icons.broken_image, size: 100, color: Colors.red);
-                }
-              })
-            // 3. 表示できる画像が何もない場合 (ただし全画面表示のときは表示しない)
-            else
-              if (!isFullScreen) const Icon(Icons.image_not_supported, size: 100, color: Colors.grey),
+            Hero(
+              tag: 'image_${_post['id']}',
+              child: _buildImageContent(effectiveImagePath, cachedBytes),
+            ),
             if (_isUploading)
               Container(
                 color: Colors.black.withOpacity(0.5),
-                child: const Center(
-                  child: CircularProgressIndicator(color: Colors.white),
-                ),
+                child: const Center(child: CircularProgressIndicator(color: Colors.white)),
               )
-            else if (!isFullScreen)
-              const Icon(
-                Icons.edit,
-                color: Colors.white,
-                size: 40,
-                shadows: [Shadow(color: Colors.black, blurRadius: 15.0)],
-              ),
+            else if (!isFullScreen && effectiveImagePath.isNotEmpty)
+              const Icon(Icons.edit, color: Colors.white, size: 40, shadows: [Shadow(color: Colors.black, blurRadius: 15.0)]),
           ],
         ),
       ),
     );
+  }
+
+  Widget _buildImageContent(String imagePath, Uint8List? cachedBytes) {
+    // 1. URL形式の画像
+    if (imagePath.startsWith('http')) {
+      return Image.network(
+        imagePath,
+        fit: BoxFit.contain,
+        loadingBuilder: (context, child, progress) {
+          if (progress == null) return child;
+          // 読み込み中もキャッシュがあれば表示
+          if (cachedBytes != null && cachedBytes.isNotEmpty) {
+            return Image.memory(cachedBytes, fit: BoxFit.contain);
+          }
+          return const Center(child: CircularProgressIndicator());
+        },
+        errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 100, color: Colors.grey),
+      );
+    }
+
+    // 2. キャッシュされたバイトデータ
+    if (cachedBytes != null && cachedBytes.isNotEmpty) {
+      return Image.memory(cachedBytes, fit: BoxFit.contain);
+    }
+
+    // 3. Base64形式の画像
+    if (imagePath.isNotEmpty) {
+      try {
+        final bytes = base64Decode(imagePath);
+        return Image.memory(bytes, fit: BoxFit.contain);
+      } catch (e) {
+        return const Icon(Icons.broken_image, size: 100, color: Colors.grey);
+      }
+    }
+
+    // 4. 表示できる画像がない
+    return const Icon(Icons.image_not_supported, size: 100, color: Colors.grey);
   }
 
   Widget _buildTimeline(List<dynamic> history) {

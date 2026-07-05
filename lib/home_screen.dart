@@ -865,29 +865,27 @@ class _HomeScreenState extends State<HomeScreen>
           debugPrint('画像アップロード完了: $imageUrl');
         }
 
+        // 投稿番号を安全にインクリメントして新しい投稿を作成する
+        final newPostRef = FirebaseFirestore.instance.collection('posts').doc();
+        final counterRef = FirebaseFirestore.instance.collection('metadata').doc('postCounter');
+
         await FirebaseFirestore.instance.runTransaction((transaction) async {
-          // 1. カウンター用のドキュメント(metadata/postCounter)を参照
-          // ※事前にFirestoreコンソールで metadata コレクションに postCounter ドキュメントを作り、
-          //  { "current": 10 } (現在の最大番号) のようにデータを入れておくとスムーズです。
-          final counterRef = FirebaseFirestore.instance.collection('metadata').doc('postCounter');
           final counterSnapshot = await transaction.get(counterRef);
 
-          int nextNumber = 1;
-          if (counterSnapshot.exists && counterSnapshot.data() != null) {
-            final data = counterSnapshot.data() as Map<String, dynamic>;
-            if (data.containsKey('current')) {
-              nextNumber = (data['current'] as int) + 1;
-            }
+          // counterドキュメントが存在しない場合は初期値1で作成
+          if (!counterSnapshot.exists) {
+            transaction.set(counterRef, {'current': 1});
+            transaction.set(newPostRef, {'postNumber': 1});
+            return;
           }
 
-          // 2. カウンターを更新(他の人がこの間に割り込めないようロックされます)
-          transaction.set(counterRef, {'current': nextNumber}, SetOptions(merge: true));
-          debugPrint('次の投稿番号: $nextNumber');
+          final currentNumber = (counterSnapshot.data()!['current'] as int?) ?? 0;
+          final nextNumber = currentNumber + 1;
 
-          // 3. 投稿ドキュメントを作成
-          final newPostRef = FirebaseFirestore.instance.collection('posts').doc();
+          transaction.update(counterRef, {'current': nextNumber});
           transaction.set(newPostRef, {
             'class': '$_selectedValue1年$_selectedValue2組',
+            'postNumber': nextNumber,
             'deductionPoints': _selectedDeductionPoints.toString(),
             'deductionReason': _selectedDeductionReason,
             'remarks': _remarksController.text,
@@ -900,8 +898,8 @@ class _HomeScreenState extends State<HomeScreen>
               {'type': 'created', 'timestamp': DateTime.now().toIso8601String(), 'reason': '新規減点登録'}
             ],
           });
-          debugPrint('Firestoreへの書き込み予約完了');
         });
+        debugPrint('Firestoreへの書き込み完了');
 
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
