@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -17,6 +19,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _rememberMe = false;
   bool _isLoading = false;
   String? _errorMessage;
+  Timer? _autoLoginTimer;
 
   @override
   void initState() {
@@ -26,11 +29,12 @@ class _LoginScreenState extends State<LoginScreen> {
 
   // アプリ起動時にFirebaseのログイン状態をチェックする
   Future<void> _autoLogin() async {
-    // 少し待ってから認証状態を確認
-    await Future.delayed(const Duration(seconds: 1));
-    if (FirebaseAuth.instance.currentUser != null) {
-      _navigateToHome(FirebaseAuth.instance.currentUser!);
-    }
+    _autoLoginTimer?.cancel();
+    _autoLoginTimer = Timer(const Duration(seconds: 1), () {
+      if (mounted && FirebaseAuth.instance.currentUser != null) {
+        _navigateToHome(FirebaseAuth.instance.currentUser!);
+      }
+    });
   }
 
   void _navigateToHome(User user) {
@@ -45,6 +49,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    _autoLoginTimer?.cancel();
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();

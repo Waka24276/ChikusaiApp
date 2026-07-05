@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/cupertino.dart';
+import 'dart:async';
 import 'dart:typed_data'; // Uint8Listのため
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart'; // Firestoreのインポート
 import 'package:firebase_storage/firebase_storage.dart'; // Storageのインポート
-import 'package:firebase_auth/firebase_auth.dart' as firebase_auth; // Authのインポート
-import 'dart:async'; // StreamSubscriptionのため
+import 'package:firebase_auth/firebase_auth.dart'; // Authのインポート
 import 'package:flutter/foundation.dart'; // kIsWeb を使うため
 import 'post_detail_screen.dart'; // Import the new detail screen
 import 'package:pdf/pdf.dart';
@@ -168,7 +168,6 @@ class _HomeScreenState extends State<HomeScreen>
   final List<List<Map<String, dynamic>>> _filteredPostsCache = [[], [], [], []];
   final List<Map<int, int>> _classTotalsCache = [{}, {}, {}, {}];
   final List<Map<int, int>> _archivedClassTotalsCache = [{}, {}, {}, {}];
-
   StreamSubscription? _postsSubscription; // リアルタイム更新の購読
   int _selectedValue1 = 1;
   String _selectedValue2 = '1';
