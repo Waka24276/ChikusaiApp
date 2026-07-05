@@ -339,8 +339,12 @@ class _HomeScreenState extends State<HomeScreen>
           data['id'] = doc.id; // ドキュメントIDを保持(削除や更新に必要)
           
           // 画像がBase64の場合、ここで一度だけデコードしてバイトデータとして保持しておく
-          final String imagePath = data['imagePath'] ?? '';
-          if (imagePath.isNotEmpty && !imagePath.startsWith('http')) {
+          // 古い 'image' フィールドも考慮に入れる
+          final String imagePath = data['imagePath'] ?? data['image'] ?? '';
+          if (imagePath.isNotEmpty) {
+            data['imagePath'] = imagePath; // データを imagePath に統一
+          }
+          if (imagePath.isNotEmpty && !imagePath.startsWith('http') && data['_cachedUint8List'] == null) {
             try {
               data['_cachedUint8List'] = base64Decode(imagePath);
             } catch (_) {}

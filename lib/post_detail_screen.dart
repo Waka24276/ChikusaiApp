@@ -26,7 +26,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _post = widget.post;
+    _post = Map<String, dynamic>.from(widget.post); // 変更可能なコピーを作成
+    // 古い 'image' フィールドを 'imagePath' に統合する
+    if (_post['imagePath'] == null || (_post['imagePath'] as String).isEmpty) {
+      _post['imagePath'] = _post['image'] ?? '';
+    }
+
     _migrateOldImageIfNeeded();
 
     // リアルタイムで投稿の変更を監視
@@ -41,7 +46,12 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
 
   /// 古い形式(Base64)の画像を検出し、新しいURL形式に自動で変換・更新する
   Future<void> _migrateOldImageIfNeeded() async {
-    final String imagePath = _post['imagePath'] ?? '';
+    // 'image' フィールドも考慮に入れる
+    final String imagePath = _post['imagePath'] ?? _post['image'] ?? '';
+    if (imagePath.isEmpty) {
+      return; // 変換対象の画像がない場合は何もしない
+    }
+
     // Base64形式の画像（httpで始まらない）で、まだ変換処理中でない場合
     if (imagePath.isNotEmpty && !imagePath.startsWith('http')) {
       if (!mounted) return;
@@ -336,46 +346,35 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
               ? (constraints.maxWidth * 2.0).toInt()
               : null;
 
-          try {
-            if (imagePath.isEmpty) {
-              return const Icon(Icons.image_not_supported, size: 100);
-            }
-            if (imagePath.startsWith('http')) {
-              return Image.network(
-                imagePath,
-                fit: BoxFit.contain,
-                cacheWidth: cacheWidth,
-                errorBuilder: (context, error, stackTrace) {
-                  debugPrint('Image.network error: $error'); // エラーをコンソールに出力
-                  return const Icon(Icons.broken_image, size: 100, color: Colors.red);
-                },
-                loadingBuilder: (context, child, loadingProgress) {
-                  if (loadingProgress == null) return child;
-                  return Center(
-                    child: SizedBox(
-                      width: 32,
-                      height: 32,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        value: loadingProgress.expectedTotalBytes != null
-                            ? loadingProgress.cumulativeBytesLoaded / loadingProgress.expectedTotalBytes!
-                            : null,
-                      ),
-                    ),
-                  );
-                },
-              );
-            }
-            // Base64形式の文字列をデコードして表示
-            // ホーム画面と同様に、まずキャッシュされたバイトデータ（_cachedUint8List）を試す
-            if (cachedBytes != null && cachedBytes.isNotEmpty) {
-              return Image.memory(
-                cachedBytes,
-                fit: BoxFit.contain,
-                cacheWidth: cacheWidth,
-              );
-            }
-            // キャッシュがない場合、imagePathがBase64文字列であると仮定してデコードを試みる
+          // 1. 最初にキャッシュされたバイトデータがあるか確認し、あればそれを表示
+          if (cachedBytes != null && cachedBytes.isNotEmpty) {
+            return Image.memory(
+              cachedBytes,
+              fit: BoxFit.contain,
+              cacheWidth: cacheWidth,
+              errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 100, color: Colors.red),
+            );
+          }
+
+          // 2. キャッシュがなく、imagePathがURLの場合
+          if (imagePath.startsWith('http')) {
+            return Image.network(
+              imagePath,
+              fit: BoxFit.contain,
+              cacheWidth: cacheWidth,
+              loadingBuilder: (context, child, loadingProgress) {
+                if (loadingProgress == null) return child;
+                return const Center(child: CircularProgressIndicator());
+              },
+              errorBuilder: (context, error, stackTrace) {
+                debugPrint('Image.network error: $error');
+                return const Icon(Icons.broken_image, size: 100, color: Colors.red);
+              },
+            );
+          }
+
+          // 3. キャッシュがなく、URLでもない場合 (Base64文字列と仮定)
+          if (imagePath.isNotEmpty) {
             try {
               final bytes = base64Decode(imagePath);
               return Image.memory(
@@ -385,11 +384,13 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                 errorBuilder: (context, error, stackTrace) => const Icon(Icons.broken_image, size: 100, color: Colors.red),
               );
             } catch (e) {
-              return const Icon(Icons.broken_image, size: 100); // デコード失敗
+              debugPrint('Base64 decode error: $e');
+              return const Icon(Icons.broken_image, size: 100, color: Colors.red);
             }
-          } catch (e) {
-            return const Icon(Icons.broken_image, size: 100);
           }
+
+          // 4. 上記のいずれにも当てはまらない場合
+          return const Icon(Icons.image_not_supported, size: 100, color: Colors.grey);
         },
       ),
             if (_isUploading)
