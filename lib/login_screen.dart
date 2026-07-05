@@ -99,7 +99,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (value == null || value.isEmpty) {
                     return 'パスワードを入力してください';
                   }
-                  if (value != 'chigusa1516') {
+                  if (value != 'chigusa1516') { // DANGER: Hardcoded password
                     return 'パスワードが正しくありません';
                   }
                   return null;

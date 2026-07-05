@@ -1843,9 +1843,10 @@ class _HomeScreenState extends State<HomeScreen>
 
             return DataRow(
               cells: [
-                DataCell(Text('${item['_uiNumber'] ?? 0}',
-                         style: TextStyle(color: shouldBePink ? Colors.pink : Colors.grey)),
-                         onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
+                DataCell(
+                  Text('${item['_uiNumber'] ?? 0}', style: TextStyle(color: shouldBePink ? Colors.pink : Colors.grey)),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item))),
+                ),
                 DataCell(
                   Text(item['timestamp'] != null
                       ? DateTime.parse(item['timestamp']!)
@@ -1854,21 +1855,20 @@ class _HomeScreenState extends State<HomeScreen>
                           .substring(5, 16)
                           .replaceAll('-', '/')
                       : ''),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item))),
                 ),
-                DataCell(Text(item['class']?.toString() ?? '')),
-                DataCell(Text(item['deductionPoints']?.toString() ?? '')),
+                DataCell(Text(item['class']?.toString() ?? ''), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
+                DataCell(Text(item['deductionPoints']?.toString() ?? ''), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
                 DataCell(
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 150),
                     child: Text(item['deductionReason']?.toString() ?? '', overflow: TextOverflow.ellipsis),
-                  ),
-                ),
+                  ), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
                 DataCell(
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 80),
                     child: Text(item['name']?.toString() ?? '不明', overflow: TextOverflow.ellipsis),
-                  ),
-                ),
+                  ), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
               ],
             );
           }),

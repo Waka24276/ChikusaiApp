@@ -6,6 +6,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_storage/firebase_storage.dart';
 import 'home_screen.dart'; 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 
 import 'date_helpers.dart';
 
@@ -182,20 +183,39 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
             const SizedBox(height: 8),
             Text('理由: $deductionReason', style: const TextStyle(fontSize: 16)),
             // --- 理由と点数を変更するボタンを追加 ---
-            Align(
-              alignment: Alignment.centerRight,
-              child: TextButton.icon(
-                onPressed: _isUploading ? null : _editDeductionDetails,
-                icon: const Icon(Icons.edit, size: 16),
-                label: const Text('理由/点数を変更'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.blueGrey,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton.icon(
+                  onPressed: _isUploading ? null : _editRemarks,
+                  icon: const Icon(Icons.edit, size: 16),
+                  label: const Text('備考を編集'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.blueGrey,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  ),
                 ),
-              ),
+                const SizedBox(width: 8),
+                TextButton.icon(
+                  onPressed: _isUploading ? null : _editDeductionDetails,
+                  icon: const Icon(Icons.rule, size: 16),
+                  label: const Text('理由/点数を変更'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.blueGrey,
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  ),
+                ),
+              ],
             ),
             // --- ここまで ---
-            Text('備考: ${remarks.isNotEmpty ? remarks : "なし"}', style: const TextStyle(fontSize: 16)),
+            InkWell(
+              onTap: _isUploading ? null : _editRemarks,
+              borderRadius: BorderRadius.circular(4),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4.0),
+                child: Text('備考: ${remarks.isNotEmpty ? remarks : "なし"}', style: const TextStyle(fontSize: 16)),
+              ),
+            ),
             const SizedBox(height: 8),
             Text('日時: $timestamp', style: const TextStyle(fontSize: 16)),
             const SizedBox(height: 8),
@@ -230,6 +250,50 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         ),
       ),
     );
+  }
+
+  Future<void> _editRemarks() async {
+    final controller = TextEditingController(text: _post['remarks'] as String?);
+    final newRemarks = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('備考の編集'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          maxLines: 3,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('キャンセル')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('保存')),
+        ],
+      ),
+    );
+
+    if (newRemarks != null && newRemarks != _post['remarks']) {
+      setState(() => _isUploading = true);
+      try {
+        await FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).update({
+          'remarks': newRemarks,
+          'statusHistory': FieldValue.arrayUnion([{
+            'type': 'edited',
+            'timestamp': DateTime.now().toIso8601String(),
+            'reason': '備考を変更',
+          }]),
+        });
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('備考を更新しました。')));
+        }
+      } catch (e) {
+        debugPrint('備考の更新エラー: $e');
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('更新に失敗しました。')));
+        }
+      } finally {
+        if (mounted) setState(() => _isUploading = false);
+      }
+    }
   }
 
   Future<void> _editDeductionDetails() async {
