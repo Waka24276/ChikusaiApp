@@ -458,6 +458,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
                               ),
                               child: Text(tag.toString(), style: TextStyle(fontSize: 11, color: Colors.blueGrey[700])),
                             )).toList(),
+                          ),
                         );
                       }),
                     const SizedBox(height: 20),
