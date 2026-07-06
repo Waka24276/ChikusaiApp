@@ -21,6 +21,14 @@ jobs:
           cache: true # ★★★ 修正点: キャッシュを有効にする ★★★
 
       # ★★★ ここから追加 ★★★
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Firebase CLI
+        run: npm install -g firebase-tools
+      # ★★★ ここから追加 ★★★
       - name: Activate FlutterFire CLI
         run: dart pub global activate flutterfire_cli
 
