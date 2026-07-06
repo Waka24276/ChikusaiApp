@@ -37,7 +37,7 @@ jobs:
         run: dart pub global activate flutterfire_cli
 
       - name: Generate Firebase Options
-        run: flutterfire configure --project=YOUR_PROJECT_ID --out=lib/firebase_options.dart --platforms=web --web-app-id=1:1003496022860:web:96e83803025595952f4139
+        run: flutterfire configure --project=chikusaiapp --out=lib/firebase_options.dart --platforms=web --web-app-id=1:1003496022860:web:96e83803025595952f4139
       # --- ★★★ ここまで認証方法を変更 ★★★ ---
 
       - name: Build Web
@@ -49,4 +49,4 @@ jobs:
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           channelId: live
-          projectId: YOUR_PROJECT_ID
+          projectId: chikusaiapp
