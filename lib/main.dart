@@ -13,6 +13,11 @@ Future<void> initializeFirebase() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    // 匿名認証でサインインする
+    await FirebaseAuth.instance.signInAnonymously();
+    debugPrint("Signed in with temporary account.");
+  } on FirebaseAuthException catch (e) {
+    debugPrint('Failed to sign in anonymously: $e');
   } catch (e) {
     debugPrint('Firebase初期化エラー: $e');
   }
@@ -34,6 +39,7 @@ class MyApp extends StatelessWidget {
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
         scaffoldBackgroundColor: Colors.white,
+        useMaterial3: true,
       ),
       // アプリの開始画面をLoginScreenに設定
       initialRoute: '/login',
