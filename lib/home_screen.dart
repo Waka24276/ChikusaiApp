@@ -789,21 +789,20 @@ class _HomeScreenState extends State<HomeScreen>
                   onPressed: (isUploading || selectedTags.length < _minRequiredTags) ? null : () async {
                     setDialogState(() => isUploading = true);
                     try {
-                    String hiddenImageUrl = '';
-                    if (tempBytes != null) {
-                      final ref = FirebaseStorage.instance
-                          .ref()
-                          .child('hidden_reasons/${DateTime.now().millisecondsSinceEpoch}.jpg');
-                      // tempBytes が null でないことを確認
-                      if (tempBytes != null) await ref.putData(tempBytes!);
-                      hiddenImageUrl = await ref.getDownloadURL();
-                    }
+                      String? hiddenImageUrl; // null許容型に変更
+                      if (tempBytes != null) {
+                        final ref = FirebaseStorage.instance
+                            .ref()
+                            .child('hidden_reasons/${DateTime.now().millisecondsSinceEpoch}.jpg');
+                        await ref.putData(tempBytes!);
+                        hiddenImageUrl = await ref.getDownloadURL();
+                      }
                     // Firestoreのデータを更新
                     await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
                       'isHidden': false, // ホーム画面に表示 (赤タグ)
                       'discussionStatus': 'deduction', // ステータスを「審議中」に設定
                       'discussionTimestamp': DateTime.now().toIso8601String(), // 審議開始日時を記録
-                      'hiddenReasonImage': hiddenImageUrl,
+                      'hiddenReasonImage': hiddenImageUrl ?? FieldValue.delete(), // nullならフィールドごと削除
                       'cancellationTags': selectedTags,
                       'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
                       'statusHistory': FieldValue.arrayUnion([
@@ -870,22 +869,8 @@ class _HomeScreenState extends State<HomeScreen>
         final counterRef = FirebaseFirestore.instance.collection('metadata').doc('postCounter');
 
         await FirebaseFirestore.instance.runTransaction((transaction) async {
-          final counterSnapshot = await transaction.get(counterRef);
-
-          // counterドキュメントが存在しない場合は初期値1で作成
-          if (!counterSnapshot.exists) {
-            transaction.set(counterRef, {'current': 1});
-            transaction.set(newPostRef, {'postNumber': 1});
-            return;
-          }
-
-          final currentNumber = (counterSnapshot.data()!['current'] as int?) ?? 0;
-          final nextNumber = currentNumber + 1;
-
-          transaction.update(counterRef, {'current': nextNumber});
-          transaction.set(newPostRef, {
+          final postData = {
             'class': '$_selectedValue1年$_selectedValue2組',
-            'postNumber': nextNumber,
             'deductionPoints': _selectedDeductionPoints.toString(),
             'deductionReason': _selectedDeductionReason,
             'remarks': _remarksController.text,
@@ -896,7 +881,22 @@ class _HomeScreenState extends State<HomeScreen>
             'statusHistory': [
               {'type': 'created', 'timestamp': DateTime.now().toIso8601String(), 'reason': '新規減点登録'}
             ],
-          });
+          };
+
+          final counterSnapshot = await transaction.get(counterRef);
+          int nextNumber;
+
+          // counterドキュメントが存在しない場合は初期値1で作成
+          if (!counterSnapshot.exists) {
+            nextNumber = 1;
+            transaction.set(counterRef, {'current': 1});
+          } else {
+            final currentNumber = (counterSnapshot.data()!['current'] as int?) ?? 0;
+            nextNumber = currentNumber + 1;
+            transaction.update(counterRef, {'current': nextNumber});
+          }
+
+          transaction.set(newPostRef, {...postData, 'postNumber': nextNumber});
         });
         debugPrint('Firestoreへの書き込み完了');
 
@@ -958,13 +958,12 @@ class _HomeScreenState extends State<HomeScreen>
               title: Text(_showHiddenOnly ? '取り消した減点' : 'ホーム'),
               leading: IconButton(
                 icon: const Icon(Icons.meeting_room),
-                onPressed: () {
-                  // ログイン画面に戻る
-                  Navigator.of(context).pushNamedAndRemoveUntil('/login', (route) => false);
-                  // 注意: main.dartで '/login': (context) => LoginScreen() のような
-                  // ルート設定がされている必要があります。
-                  // もし設定がない場合は、この修正後にエラーになる可能性があります。
-                  // その場合はお申し付けください。
+                onPressed: () async {
+                  // Firebaseからサインアウト
+                  await FirebaseAuth.instance.signOut();
+                  // ログイン画面に戻る (Navigator.pushReplacementを使用して安全に画面遷移)
+                  if (!mounted) return;
+                  Navigator.pushReplacementNamed(context, '/login');
                 },
                 tooltip: 'ログアウト',
               ),

@@ -13,9 +13,6 @@ void main() async {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
-    // 匿名認証でサインイン（起動時に必須）
-    await FirebaseAuth.instance.signInAnonymously();
-    debugPrint("Signed in with temporary account.");
   } catch (e) {
     // エラーが発生した場合はデバッグコンソールに出力
     debugPrint('Firebase initialization failed: $e');
@@ -37,9 +34,11 @@ class MyApp extends StatelessWidget {
         scaffoldBackgroundColor: Colors.white,
         useMaterial3: true,
       ),
-      // 最初の画面をLoginScreenに設定
-      home: const LoginScreen(),
+      // 名前付きルートを定義
+      initialRoute: '/login',
+      routes: {
+        '/login': (context) => const LoginScreen(),
+      },
     );
   }
 }
-

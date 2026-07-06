@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:firebase_auth/firebase_auth.dart'; // Firebase Authをインポート
 import 'home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
@@ -47,7 +48,27 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (_passwordController.text.trim() == correctPassword) {
         // パスワードが一致したらホーム画面へ
-        _navigateToHome(_nameController.text);
+        try {
+          // ログイン成功時にFirebaseへ匿名認証を行う
+          // 既存のセッションがあれば一度サインアウトして、クリーンな状態で再認証する
+          if (FirebaseAuth.instance.currentUser != null) {
+            await FirebaseAuth.instance.signOut();
+            debugPrint("Signed out previous session.");
+          }
+          await FirebaseAuth.instance.signInAnonymously();
+          debugPrint("Authenticated with temporary account.");
+          // ★ 修正点: 認証成功後に画面遷移を呼び出す
+          _navigateToHome(_nameController.text);
+        } catch (e) {
+          debugPrint('Firebase authentication failed: $e');
+          // 認証に失敗した場合は、エラーメッセージを表示して処理を中断
+          if (mounted) {
+            setState(() {
+              _errorMessage = '認証に失敗しました。接続を確認してください。';
+              _isLoading = false; // ★ 修正点: エラー時もローディングを解除
+            });
+          }
+        }
       } else {
         // パスワードが違ったらエラーメッセージを表示
         if (mounted) {
