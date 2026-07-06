@@ -32,16 +32,8 @@ jobs:
       - name: Activate FlutterFire CLI
         run: dart pub global activate flutterfire_cli
 
-      - name: Generate Firebase Options
-        env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
-        run: |
-          flutterfire configure \
-            --project=chikusai-app-c6e9c \
-            --out=lib/firebase_options.dart \
-            --platforms=web \
-            --web-app-id=1:1003496022860:web:96e83803025595952f4139
-      # ★★★ ここまで追加 ★★★
+      - name: Generate Firebase Options # 認証方法をサービスアカウントに修正
+        run: flutterfire configure --project=YOUR_PROJECT_ID --out=lib/firebase_options.dart --platforms=web --web-app-id=1:1003496022860:web:96e83803025595952f4139 --account=${{ secrets.FIREBASE_SERVICE_ACCOUNT_EMAIL }}
 
       - name: Build Web
         run: |
@@ -53,4 +45,4 @@ jobs:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}'
           channelId: live
-          projectId: chikusai-app-c6e9c
+          projectId: YOUR_PROJECT_ID
