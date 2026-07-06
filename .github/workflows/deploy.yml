@@ -27,11 +27,11 @@ jobs:
           cat lib/firebase_options.dart # Debug: Print generated file content
       # --- ★★★ ここまで ★★★ ---
 
-      - name: Get dependencies
-        run: flutter pub get
+      - name: Get dependencies # インデントを修正
+        run: flutter pub get # インデントを修正
 
-      - name: Build Web
-        run: flutter build web --release
+      - name: Build Web # インデントを修正
+        run: flutter build web --release # インデントを修正
 
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
