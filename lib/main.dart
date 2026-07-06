@@ -1,31 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'firebase_options.dart'; // flutterfire configureで自動生成されるファイル
+import 'firebase_options.dart';
 import 'login_screen.dart';
-
-Future<void> initializeFirebase() async {
-  if (Firebase.apps.isNotEmpty) {
-    return;
-  }
-
-  try {
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    // 匿名認証でサインインする
-    await FirebaseAuth.instance.signInAnonymously();
-    debugPrint("Signed in with temporary account.");
-  } on FirebaseAuthException catch (e) {
-    debugPrint('Failed to sign in anonymously: $e');
-  } catch (e) {
-    debugPrint('Firebase初期化エラー: $e');
-  }
-}
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await initializeFirebase();
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+  // 匿名認証でサインインする
+  // 既にサインイン済みの場合は再利用される
+  await FirebaseAuth.instance.signInAnonymously();
+  debugPrint("Firebase initialized and user signed in anonymously.");
   runApp(const MyApp());
 }
 
