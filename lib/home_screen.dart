@@ -1778,7 +1778,7 @@ class _HomeScreenState extends State<HomeScreen>
             ),
             const SizedBox(width: 8),
             Text(
-              '理由: ${item['deductionReason']}',
+              '${item['deductionReason']}',
               style: const TextStyle(fontSize: 13),
             ),
           ],
