@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:chikusai_app/main.dart';
 
 void main() {
-  testWidgets('ログイン画面の表示テスト', (WidgetTester tester) async {
+  testWidgets('ログイン画面表示テスト', (WidgetTester tester) async {
     await tester.pumpWidget(const MyApp());
     await tester.pump();
 
