@@ -39,7 +39,6 @@ jobs:
           flutterfire configure \
             --project=chikusai-app-c6e9c \
             --out=lib/firebase_options.dart \
-            --yes \
             --platforms=web \
             --web-app-id=1:1003496022860:web:96e83803025595952f4139
       # ★★★ ここまで追加 ★★★
