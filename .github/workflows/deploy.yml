@@ -22,7 +22,9 @@ jobs:
       # --- ★★★ ここから最終手段 ★★★ ---
       # flutterfire configure の代わりに、シークレットから直接ファイルを生成する
       - name: Generate firebase_options.dart
-        run: echo "${{ secrets.FIREBASE_OPTIONS_DART }}" > lib/firebase_options.dart
+        run: |
+          printf "%s" "${{ secrets.FIREBASE_OPTIONS_DART }}" > lib/firebase_options.dart
+          cat lib/firebase_options.dart # Debug: Print generated file content
       # --- ★★★ ここまで ★★★ ---
 
       - name: Get dependencies
