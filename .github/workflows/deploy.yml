@@ -19,14 +19,30 @@ jobs:
         with:
           channel: 'stable'
 
+      # ★★★ ここから追加 ★★★
+      - name: Activate FlutterFire CLI
+        run: dart pub global activate flutterfire_cli
+
+      - name: Generate Firebase Options
+        env:
+          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+        run: |
+          flutterfire configure \
+            --project=chikusai-app-c6e9c \
+            --out=lib/firebase_options.dart \
+            --yes \
+            --platforms=web,android
+      # ★★★ ここまで追加 ★★★
+
       - name: Build Web
         run: |
           flutter pub get
           flutter build web --release --base-href "/${{ github.event.repository.name }}/"
 
-      - name: Deploy
-        uses: JamesIves/github-pages-deploy-action@v4
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
         with:
-          folder: build/web
-          branch: gh-pages
-          token: ${{ secrets.GITHUB_TOKEN }}
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}'
+          channelId: live
+          projectId: chikusai-app-c6e9c
