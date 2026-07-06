@@ -23,8 +23,8 @@ jobs:
       # flutterfire configure の代わりに、シークレットから直接ファイルを生成する
       - name: Generate firebase_options.dart
         run: echo "${{ secrets.FIREBASE_OPTIONS_DART }}" > lib/firebase_options.dart
-
-      # --- ★★★ ここまで ★★★ ---
+      
+      # --- ★★★ ここまで ★★★
       - name: Build Web
         run: flutter build web --release
 
