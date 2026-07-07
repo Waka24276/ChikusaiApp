@@ -2030,28 +2030,6 @@ class _HomeScreenState extends State<HomeScreen>
     return Icon(Icons.image_not_supported, size: iconSize, color: Colors.grey[300]);
   }
 
-  // メソッドを独立させる(構文エラーの修正)
-  Widget _buildMemoryImage(Uint8List? imageBytes, double? w, double? h, int? cacheW, int? cacheH, double iconSize) {
-    try {
-      final bytes = imageBytes;
-      if (bytes == null || bytes.isEmpty) {
-        return Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]);
-      }
-
-      return Image.memory(
-        bytes,
-        width: w, height: h, fit: BoxFit.cover,
-        filterQuality: FilterQuality.low,
-        gaplessPlayback: true,
-        cacheWidth: cacheW,
-        cacheHeight: cacheH,
-        errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]),
-      );
-    } catch (_) {
-      return Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]);
-    }
-  }
-
   Widget _buildStatusTag(Map<String, dynamic> item, bool isRecent) {
     final String? status = item['discussionStatus'];
     final bool isHidden = item['isHidden'] == true;
@@ -2082,7 +2060,33 @@ class _HomeScreenState extends State<HomeScreen>
       ),
     );
   }
-} // _HomeScreenState を閉じるカッコ(重要)
+}
+
+// _HomeScreenState の外に移動
+Widget _buildMemoryImage(Uint8List? imageBytes, double? w, double? h, int? cacheW, int? cacheH, double iconSize) {
+  try {
+    final bytes = imageBytes;
+    if (bytes == null || bytes.isEmpty) {
+      return Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]);
+    }
+
+    return Image.memory(
+      bytes,
+      width: w, height: h, fit: BoxFit.cover,
+      filterQuality: FilterQuality.low,
+      gaplessPlayback: true,
+      cacheWidth: cacheW,
+      cacheHeight: cacheH,
+      errorBuilder: (context, error, stackTrace) => Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]),
+    );
+  } catch (_) {
+    return Icon(Icons.broken_image, size: iconSize, color: Colors.grey[300]);
+  }
+}
+
+
+
+ // _HomeScreenState を閉じるカッコ(重要)
 
 class _SectionHeader extends StatelessWidget {
   final IconData icon;
