@@ -28,12 +28,18 @@ jobs:
       - name: Build Web
         run: flutter build web --release --verbose
 
-      - name: Deploy to Firebase
+      - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
           channelId: live
           projectId: chikusaiapp
           firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}'
-          # Hostingに加えて、Firestoreのルールもデプロイ対象に含める
-          target: hosting,firestore
+
+      - name: Deploy Firestore Rules
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: '${{ secrets.GITHUB_TOKEN }}'
+          projectId: chikusaiapp
+          firebaseServiceAccount: '${{ secrets.FIREBASE_SERVICE_ACCOUNT }}'
+          target: firestore
