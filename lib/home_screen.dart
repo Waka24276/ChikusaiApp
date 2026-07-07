@@ -1064,7 +1064,6 @@ class _HomeScreenState extends State<HomeScreen>
     final List<Map<String, dynamic>> displayedPosts = [];
     for (var post in sourcePosts) {
       final bool isHidden = post['isHidden'] ?? false;
-      final bool isDeduction = post['discussionStatus'] == 'deduction';
       final String? status = post['discussionStatus'];
 
       // 「口頭可能」状態で3営業日経過したか判定
