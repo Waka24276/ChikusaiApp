@@ -1101,7 +1101,9 @@ class _HomeScreenState extends State<HomeScreen>
         // 表示しない条件:
         // 1. 審議中(deduction) または 審議待ち(isHidden && status==null) で、まだ期限切れでない投稿
         // 2. 減点取り消しが確定(cancelled)した投稿
-        if ((isDeduction || (isHidden && status == null)) && !isOralPossibleExpired) continue;
+        // ※ isDeduction は「口頭可能」状態でありホームに表示すべき項目のため、ここでは除外しない
+        // if (isDeduction && !isOralPossibleExpired) continue; // この行を削除
+        if (isHidden && status == null && !isOralPossibleExpired) continue;
         if (status == 'cancelled') continue;
       }
 
