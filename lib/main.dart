@@ -29,6 +29,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       title: '文化祭 減点web', 
+      // v1.0.1 - キャッシュクリアのための再デプロイ
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.lightBlue),
         scaffoldBackgroundColor: Colors.white,
