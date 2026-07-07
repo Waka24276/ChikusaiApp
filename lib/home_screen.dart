@@ -1090,7 +1090,12 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (_showHiddenOnly) {
         // 「取り消した減点」タブ: 期限切れの口頭可能はホームに戻るが、取り消し確定(cancelled)はここに残す
-        if (((!isHidden && !isDeduction) || isOralPossibleExpired) && status != 'cancelled') continue;
+        // 古いデータ（statusがnull）は表示しない
+        if (status == null) continue;
+        if (((!isHidden && !isDeduction) || isOralPossibleExpired) && status != 'cancelled') {
+          continue;
+        }
+
       } else {
         // メインタブ: 通常表示分 + 期限切れの口頭可能を表示するが、取り消し確定(cancelled)は除外する
         if (((isHidden || isDeduction) && !isOralPossibleExpired) || status == 'cancelled') continue;
