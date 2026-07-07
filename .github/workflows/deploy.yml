@@ -26,13 +26,8 @@ jobs:
           cache: true
 
       - name: Generate and validate firebase_options.dart
-        run: |
-          set -e
-          echo "--- Generating firebase_options.dart ---"
-          printf "%s" "${{ secrets.FIREBASE_OPTIONS_DART }}" > lib/firebase_options.dart
-          echo "--- Validating file content ---"
-          cat lib/firebase_options.dart
-          echo "--- File validation complete ---"
+        shell: bash
+        run: echo "${{ secrets.FIREBASE_OPTIONS_DART }}" > lib/firebase_options.dart
 
       - name: Get dependencies
         run: flutter pub get
