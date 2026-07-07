@@ -1880,7 +1880,7 @@ class _HomeScreenState extends State<HomeScreen>
   Future<void> _exportPostsToPdf(List<Map<String, dynamic>> posts, int tabIndex) async {
     final int? activeClass = _gradeClassFilters[tabIndex];
     final bool isClassView = tabIndex > 0 && activeClass != null;
-    String title = tabIndex == 0 ? '全学年 減点集計表' : '$tabIndex年 減点集計表';
+    String title = tabIndex == 0 ? '全校 減点集計表' : '$tabIndex年 減点集計表';
     if (isClassView) {
       title = '$tabIndex年$activeClass組 減点集計表';
     }
