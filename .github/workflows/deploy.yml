@@ -22,20 +22,13 @@ jobs:
           channel: 'stable'
           cache: true
 
-      - name: 1. Generate firebase_options.dart
-        shell: bash
-        run: echo "${{ secrets.FIREBASE_OPTIONS_DART }}" > lib/firebase_options.dart
-
-      - name: 2. Validate firebase_options.dart content
-        run: cat lib/firebase_options.dart
-
-      - name: 3. Get dependencies
+      - name: Get dependencies
         run: flutter pub get
 
-      - name: 4. Build Web
+      - name: Build Web
         run: flutter build web --release --verbose
 
-      - name: 5. Deploy to Firebase Hosting
+      - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
         with:
           repoToken: '${{ secrets.GITHUB_TOKEN }}'
