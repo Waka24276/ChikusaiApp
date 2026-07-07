@@ -1083,8 +1083,8 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (refTimestampStr != null) {
         try {
-          final dt = DateTime.parse(refTimestampStr);
-          isOralPossibleExpired = DateTime.now().isAfter(dt.add(const Duration(days: 3)));
+          final dt = DateTime.parse(refTimestampStr); // 営業日計算を元に戻す
+          isOralPossibleExpired = DateTime.now().isAfter(dt.add(const Duration(days: 3))); // 3暦日後に変更
         } catch (_) {}
       }
 
