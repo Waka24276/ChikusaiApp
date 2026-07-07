@@ -130,7 +130,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     if (refTimestampStr != null) {
       try {
         final dt = DateTime.parse(refTimestampStr);
-        final deadline = dt.add(const Duration(days: 4)); // 3日後までなので、4日後との差分を計算
+        final deadline = dt.add(const Duration(days: 3));
         final remaining = deadline.difference(DateTime.now());
         if (remaining.isNegative) {
           isExpired = true;
