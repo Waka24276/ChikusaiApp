@@ -330,7 +330,6 @@ class _HomeScreenState extends State<HomeScreen>
     _postsSubscription = FirebaseFirestore.instance
         .collection('posts')
         .orderBy('timestamp', descending: true) // 新しい順に取得
-        .limit(20) // 取得件数を20件に制限して動作を軽量化
         .snapshots()
         .listen((snapshot) {
       setState(() {
@@ -1082,13 +1081,10 @@ class _HomeScreenState extends State<HomeScreen>
         if (refEvent != null) refTimestampStr = refEvent['timestamp'];
       }
 
-      // それでも無い場合は投稿時の時間を使用
-      refTimestampStr ??= post['timestamp'];
-
       if (refTimestampStr != null) {
         try {
           final dt = DateTime.parse(refTimestampStr);
-          isOralPossibleExpired = DateTime.now().isAfter(addWorkingDays(dt, 3).add(const Duration(days: 1)));
+          isOralPossibleExpired = DateTime.now().isAfter(dt.add(const Duration(days: 3)));
         } catch (_) {}
       }
 
@@ -1572,7 +1568,7 @@ class _HomeScreenState extends State<HomeScreen>
     if (timestampStr.isNotEmpty) {
       try {
         final DateTime timestamp = DateTime.parse(timestampStr);
-        isRecent = DateTime.now().isBefore(addWorkingDays(timestamp, 3).add(const Duration(days: 1))); // 3営業日以内なら最近の投稿
+        isRecent = DateTime.now().isBefore(timestamp.add(const Duration(days: 3))); // 3日以内なら最近の投稿
       } catch (_) {}
     }
     
@@ -1829,7 +1825,7 @@ class _HomeScreenState extends State<HomeScreen>
             if (timestampStr.isNotEmpty) {
               try {
                 final DateTime timestamp = DateTime.parse(timestampStr);
-                isRecent = DateTime.now().isBefore(addWorkingDays(timestamp, 3).add(const Duration(days: 1)));
+                isRecent = DateTime.now().isBefore(timestamp.add(const Duration(days: 3)));
               } catch (_) {}
             }
 
