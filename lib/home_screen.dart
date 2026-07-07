@@ -1098,12 +1098,8 @@ class _HomeScreenState extends State<HomeScreen>
 
       } else {
         // メインタブ: 通常表示分 + 期限切れの口頭可能を表示するが、取り消し確定(cancelled)は除外する
-        // 表示しない条件:
-        // 1. 審議中(deduction) または 審議待ち(isHidden && status==null) で、まだ期限切れでない投稿
-        // 2. 減点取り消しが確定(cancelled)した投稿
-        // ※ isDeduction は「口頭可能」状態でありホームに表示すべき項目のため、ここでは除外しない
-        // if (isDeduction && !isOralPossibleExpired) continue; // この行を削除
-        if (isHidden && status == null && !isOralPossibleExpired) continue;
+        // 表示しない条件を「減点取り消しが確定 (cancelled) した投稿」のみに限定する。
+        // これにより、審議中や減点確定済みの投稿が意図せず非表示になる問題を根本的に解決する。
         if (status == 'cancelled') continue;
       }
 
