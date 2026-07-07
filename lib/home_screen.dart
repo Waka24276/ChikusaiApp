@@ -1091,13 +1091,18 @@ class _HomeScreenState extends State<HomeScreen>
       if (_showHiddenOnly) {
         // 「取り消した減点」タブ: 期限切れの口頭可能はホームに戻るが、取り消し確定(cancelled)はここに残す
         // isHiddenフラグが立っている投稿、または'cancelled'状態の投稿を表示する
-        if (!isHidden && status != 'cancelled') {
+        // isHiddenがtrueか、statusが'cancelled'の投稿のみ表示する
+        if (!(isHidden || status == 'cancelled')) {
           continue;
         }
 
       } else {
         // メインタブ: 通常表示分 + 期限切れの口頭可能を表示するが、取り消し確定(cancelled)は除外する
-        if (((isHidden || isDeduction) && !isOralPossibleExpired) || status == 'cancelled') continue;
+        // 表示しない条件:
+        // 1. 審議中(deduction) または 審議待ち(isHidden && status==null) で、まだ期限切れでない投稿
+        // 2. 減点取り消しが確定(cancelled)した投稿
+        if ((isDeduction || (isHidden && status == null)) && !isOralPossibleExpired) continue;
+        if (status == 'cancelled') continue;
       }
 
       if (tabClassFilter != null && post['class'] != tabClassFilter) continue;
