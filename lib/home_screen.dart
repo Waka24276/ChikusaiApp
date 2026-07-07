@@ -1090,9 +1090,8 @@ class _HomeScreenState extends State<HomeScreen>
 
       if (_showHiddenOnly) {
         // 「取り消した減点」タブ: 期限切れの口頭可能はホームに戻るが、取り消し確定(cancelled)はここに残す
-        // 古いデータ（statusがnull）は表示しない
-        if (status == null) continue;
-        if (((!isHidden && !isDeduction) || isOralPossibleExpired) && status != 'cancelled') {
+        // isHiddenフラグが立っている投稿、または'cancelled'状態の投稿を表示する
+        if (!isHidden && status != 'cancelled') {
           continue;
         }
 
