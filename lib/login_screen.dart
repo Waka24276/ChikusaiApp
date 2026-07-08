@@ -73,6 +73,10 @@ class _LoginScreenState extends State<LoginScreen> {
         _errorMessage = null;
       });
 
+      // ★★★ 追加: ログイン試行の直前にもService Workerの登録解除を試みる ★★★
+      if (kIsWeb) {
+        await _unregisterServiceWorker();
+      }
       // 処理を擬似的に遅らせて、操作感を与える
       await Future.delayed(const Duration(milliseconds: 500));
 
