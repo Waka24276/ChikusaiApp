@@ -14,7 +14,7 @@
     ],
     "headers": [
       {
-        "source": "/(index.html|flutter_service_worker.js)",
+        "source": "**",
         "headers": [
           {
             "key": "Cache-Control",
