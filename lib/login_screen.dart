@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart'; // kIsWebをインポート
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // Firebase Authをインポート
 import 'home_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart'; // SharedPreferencesをインポート
-
+import 'dart:html' as html; // Webでのみ利用
+ 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
 
@@ -30,6 +32,31 @@ class _LoginScreenState extends State<LoginScreen> {
       context, // mountedチェック後の安全なcontext
       MaterialPageRoute(builder: (context) => HomeScreen(username: username.trim())),
     );
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // ★★★ 追加: アプリ起動時にService Workerのキャッシュをクリアする ★★★
+    if (kIsWeb) {
+      _unregisterServiceWorker();
+    }
+  }
+
+  // Service Workerの登録を解除して、キャッシュを強制的にクリアする
+  Future<void> _unregisterServiceWorker() async {
+    try {
+      // navigator.serviceWorker.getRegistrations() を呼び出し、登録されているすべてのService Workerを取得
+      final registrations = await html.window.navigator.serviceWorker?.getRegistrations();
+      if (registrations != null) {
+        for (final registration in registrations) {
+          await registration.unregister();
+          debugPrint('Service Worker unregistered successfully.');
+        }
+      }
+    } catch (e) {
+      debugPrint('Error unregistering Service Worker: $e');
+    }
   }
 
   @override
