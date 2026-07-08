@@ -28,9 +28,18 @@ jobs:
 
       # 4. Webアプリのビルド
       - name: Build Flutter web
-        run: flutter build web --release
+        run: flutter build web --release --base-href /
 
-      # 5. Firebase Hostingへのデプロイ
+      # 5. Firebase Hostingデプロイ前の事前確認
+      - name: Verify Firebase deployment secret
+        run: |
+          if [ -z "${{ secrets.FIREBASE_SERVICE_ACCOUNT }}" ]; then
+            echo "FIREBASE_SERVICE_ACCOUNT secret is not configured."
+            echo "GitHub repository settings > Secrets and variables > Actions で設定してください。"
+            exit 1
+          fi
+
+      # 6. Firebase Hostingへのデプロイ
       # このアクションは、リポジトリのルートにある firebase.json を自動的に読み込みます
       - name: Deploy to Firebase Hosting
         uses: FirebaseExtended/action-hosting-deploy@v0
