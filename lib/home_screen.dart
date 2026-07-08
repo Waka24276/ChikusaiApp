@@ -1099,9 +1099,9 @@ class _HomeScreenState extends State<HomeScreen>
         // メインタブ: 通常表示分 + 期限切れの口頭可能を表示するが、取り消し確定(cancelled)は除外する
         // 表示しない条件:
         // 1. 減点取り消しが確定(cancelled)した投稿
-        // 2. 「審議中(deduction)」または「審議待ち(isHidden && status==null)」の投稿で、まだ期限が切れていないもの
+        // 2. 「審議待ち(isHidden && status==null)」の投稿で、まだ期限が切れていないもの
         if (status == 'cancelled') continue;
-        if ((status == 'deduction' || (isHidden && status == null)) && !isOralPossibleExpired) continue;
+        if ((isHidden && status == null) && !isOralPossibleExpired) continue;
       }
 
       if (tabClassFilter != null && post['class'] != tabClassFilter) continue;
