@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart'; // Firebase Authをインポート
 import 'home_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart'; // SharedPreferencesをインポート
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,12 +18,16 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _rememberMe = false;
   bool _isLoading = false;
   String? _errorMessage;
-  
-  void _navigateToHome(String username) {
+
+  // ★ 変更点: ログイン成功時にユーザー名を保存し、ホーム画面に遷移する
+  Future<void> _onLoginSuccess(String username) async {
     if (!mounted) return;
-    // 入力された名前をホーム画面に渡す
+    // ユーザー名を永続化
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('username', username.trim());
+
     Navigator.pushReplacement(
-      context,
+      context, // mountedチェック後の安全なcontext
       MaterialPageRoute(builder: (context) => HomeScreen(username: username.trim())),
     );
   }
@@ -46,7 +51,21 @@ class _LoginScreenState extends State<LoginScreen> {
 
       const String correctPassword = 'chigusa1516';
 
-      if (_passwordController.text.trim() == correctPassword) {
+      // 安全な文字列比較を行う
+      // 通常の '==' 比較は、文字が違うとすぐにfalseを返すため、処理時間の差からパスワードを推測される
+      // タイミング攻撃のリスクをわずかに含みます。
+      // この方法は、文字列の長さを比較してから、すべての文字を比較するため、より安全です。
+      bool isPasswordCorrect = true;
+      final a = _passwordController.text.trim();
+      final b = correctPassword;
+      if (a.length != b.length) {
+        isPasswordCorrect = false;
+      } else {
+        for (int i = 0; i < a.length; i++) {
+          if (a[i] != b[i]) isPasswordCorrect = false;
+        }
+      }
+      if (isPasswordCorrect) {
         // パスワードが一致したらホーム画面へ
         try {
           // ログイン成功時にFirebaseへ匿名認証を行う
@@ -57,8 +76,8 @@ class _LoginScreenState extends State<LoginScreen> {
           }
           await FirebaseAuth.instance.signInAnonymously();
           debugPrint("Authenticated with temporary account.");
-          // ★ 修正点: 認証成功後に画面遷移を呼び出す
-          _navigateToHome(_nameController.text);
+          // ★ 変更点: 認証とユーザー名保存が完了してから画面遷移
+          await _onLoginSuccess(_nameController.text);
         } catch (e) {
           debugPrint('Firebase authentication failed: $e');
           // 認証に失敗した場合は、エラーメッセージを表示して処理を中断
@@ -127,18 +146,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   }
                   return null;
                 },
-              ),
-              const SizedBox(height: 16),
-              CheckboxListTile(
-                title: const Text('ログイン状態を保持する'),
-                value: _rememberMe,
-                onChanged: (value) {
-                  setState(() {
-                    _rememberMe = value ?? false;
-                  });
-                },
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
               ),
               const SizedBox(height: 24),
               if (_errorMessage != null)
