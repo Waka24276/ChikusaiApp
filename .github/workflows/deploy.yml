@@ -28,7 +28,7 @@ jobs:
 
       # 4. Webアプリのビルド
       - name: Build Flutter web
-        run: flutter build web --release --base-href /
+        run: flutter build web --release --base-href / --pwa-strategy=none --no-source-maps
 
       # 5. Firebase Hostingデプロイ前の事前確認
       - name: Verify Firebase deployment secret
