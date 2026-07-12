@@ -329,7 +329,7 @@ class _HomeScreenState extends State<HomeScreen>
   void _listenToPosts() {
     _postsSubscription = FirebaseFirestore.instance
         .collection('posts')
-        .orderBy('timestamp', descending: true) // 新しい順に取得
+        .orderBy('postNumber', descending: true) // 番号の大きい順(新しい順)に取得
         .snapshots()
         .listen((snapshot) {
       setState(() {
@@ -826,6 +826,35 @@ class _HomeScreenState extends State<HomeScreen>
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
                   child: const Text('減点'),
                 ),
+                ElevatedButton(
+                  onPressed: isUploading ? null : () async {
+                    setDialogState(() => isUploading = true);
+                    try {
+                      String? hiddenImageUrl;
+                      if (tempBytes != null) {
+                        final ref = FirebaseStorage.instance.ref().child('hidden_reasons/${DateTime.now().millisecondsSinceEpoch}.jpg');
+                        await ref.putData(tempBytes!);
+                        hiddenImageUrl = await ref.getDownloadURL();
+                      }
+                      await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
+                        'isHidden': false, // ホーム画面に表示
+                        'discussionStatus': 'finalized', // 即座に「確定」状態にする
+                        'discussionTimestamp': DateTime.now().toIso8601String(),
+                        'hiddenReasonImage': hiddenImageUrl ?? FieldValue.delete(),
+                        'cancellationTags': selectedTags,
+                        'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
+                        'statusHistory': FieldValue.arrayUnion([
+                          {'type': 'archived_undiscussed', 'timestamp': DateTime.now().toIso8601String(), 'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}'}
+                        ]),
+                      });
+                      if (context.mounted) Navigator.pop(context);
+                    } catch (e) {
+                      setDialogState(() => isUploading = false);
+                    }
+                  },
+                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                  child: const Text('既に3日経過'),
+                ),
               ],
             );
           },
@@ -1098,28 +1127,24 @@ class _HomeScreenState extends State<HomeScreen>
       } else {
         // メインタブ: 通常表示分 + 期限切れの口頭可能を表示するが、取り消し確定(cancelled)は除外する
         // 表示しない条件:
-        // 1. 減点取り消しが確定(cancelled)した投稿
-        // 2. 「審議待ち(isHidden && status==null)」の投稿で、まだ期限が切れていないもの
+        // 1. 減点取り消しが確定('cancelled')した投稿
+        // 2. 審議待ち('isHidden' == true かつ status が null)の投稿で、まだ期限が切れていないもの
         if (status == 'cancelled') continue;
-        if ((isHidden && status == null) && !isOralPossibleExpired) continue;
+        // if ((isHidden && status == null) && !isOralPossibleExpired) continue; // 「減点」ボタンで審議中にした投稿も表示するため、この行をコメントアウト
       }
 
       if (tabClassFilter != null && post['class'] != tabClassFilter) continue;
       
       // 表示用の番号を割り振る(元のリストでの位置に基づく)
-      final decoratedPost = Map<String, dynamic>.from(post);
-      // ナンバリングをリスト全体での位置から計算(最新の投稿が最大件数になるように)
-      decoratedPost['_uiNumber'] = _posts.length - _posts.indexOf(post);
-      decoratedPost['_isOralPossibleExpired'] = isOralPossibleExpired; // 判定結果を保持
-      displayedPosts.add(decoratedPost);
+      post['_isOralPossibleExpired'] = isOralPossibleExpired; // 判定結果を保持
+      displayedPosts.add(post);
     }
 
     // 並び替え (null安全な比較に修正)
     displayedPosts.sort((a, b) {
-      final String timeA = a['timestamp']?.toString() ?? '';
-      final String timeB = b['timestamp']?.toString() ?? '';
-      if (_sortNewestFirst) return timeB.compareTo(timeA);
-      return timeA.compareTo(timeB);
+      final int numA = a['postNumber'] ?? 0;
+      final int numB = b['postNumber'] ?? 0;
+      return _sortNewestFirst ? numB.compareTo(numA) : numA.compareTo(numB);
     });
 
     // CustomScrollView を使用することで、大量のリストアイテムを効率的に描画(Recycling)できるようにします
@@ -1562,7 +1587,7 @@ class _HomeScreenState extends State<HomeScreen>
   // 個別の投稿カードを生成。大量リストでも高速に動作するように分離。
   Widget _buildPostCard(Map<String, dynamic> item) {
     final String imagePath = item['imagePath'] ?? '';
-    final int postNumber = item['_uiNumber'] ?? 0;
+    final int postNumber = item['postNumber'] ?? 0;
     final Uint8List? cachedBytes = item['_cachedUint8List'] as Uint8List?;
 
     final bool isOralPossibleExpired = item['_isOralPossibleExpired'] == true;
@@ -1847,7 +1872,7 @@ class _HomeScreenState extends State<HomeScreen>
             return DataRow(
               cells: [
                 DataCell(
-                  Text('${item['_uiNumber'] ?? 0}', style: TextStyle(color: shouldBePink ? Colors.pink : Colors.grey)),
+                  Text('${item['postNumber'] ?? 0}', style: TextStyle(color: shouldBePink ? Colors.pink : Colors.grey)),
                   onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item))),
                 ),
                 DataCell(
@@ -1953,7 +1978,7 @@ class _HomeScreenState extends State<HomeScreen>
                           headerAlignment: pw.Alignment.center,
                           data: [
                             ...posts.map((p) => [
-                              p['_uiNumber']?.toString() ?? '',
+                              p['postNumber']?.toString() ?? '',
                               p['timestamp'] != null
                                   ? DateTime.parse(p['timestamp']!)
                                       .toLocal()
@@ -2041,10 +2066,9 @@ class _HomeScreenState extends State<HomeScreen>
     final bool isOralPossibleExpired = item['_isOralPossibleExpired'] == true;
 
     if (isOralPossibleExpired) return const SizedBox.shrink();
-
-    // 審議中(deduction)、または警告直後(isHidden && status == null)の場合にタグを表示
-    // 減点確定(finalized)後や、'cancelled' (取り消し確定) の時は表示しないように修正
-    if (status == 'deduction' || (isHidden && status == null)) {
+    
+    // 新しいロジック: 投稿後3日以内で、まだ何のステータスも付いていない投稿に「口頭可能」タグを表示
+    if (isRecent && status == null && !isHidden) {
       return _tagWidget('口頭可能', Colors.yellow, Colors.black87);
     }
     return const SizedBox.shrink();

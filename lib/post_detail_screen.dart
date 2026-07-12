@@ -91,6 +91,7 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final String classInfo = _post['class'] ?? '';
+    final int postNumber = _post['postNumber'] ?? 0;
     final String deductionPoints = _post['deductionPoints'] ?? '';
     final String deductionReason = _post['deductionReason'] ?? '';
     final String remarks = _post['remarks'] ?? '';
@@ -172,7 +173,25 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('クラス: $classInfo', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.baseline,
+              textBaseline: TextBaseline.alphabetic,
+              children: [
+                Text('クラス: $classInfo', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                const Spacer(),
+                InkWell(
+                  onTap: _editPostNumber,
+                  borderRadius: BorderRadius.circular(8),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                    child: Text(
+                      'No. $postNumber',
+                      style: const TextStyle(fontSize: 16, color: Colors.blueGrey, fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ),
+              ],
+            ),
             if (statusLabel.isNotEmpty) ...[
               const SizedBox(height: 8),
               Row(
@@ -260,6 +279,44 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
     );
   }
 
+  Future<void> _editPostNumber() async {
+    final controller = TextEditingController(text: (_post['postNumber'] ?? 0).toString());
+    final newNumberStr = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('投稿番号を編集'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          decoration: const InputDecoration(labelText: '新しい番号', border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('キャンセル')),
+          ElevatedButton(onPressed: () => Navigator.pop(context, controller.text), child: const Text('保存')),
+        ],
+      ),
+    );
+
+    if (newNumberStr != null) {
+      final newNumber = int.tryParse(newNumberStr);
+      if (newNumber != null && newNumber != _post['postNumber']) {
+        setState(() => _isUploading = true);
+        try {
+          await FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).update({
+            'postNumber': newNumber,
+          });
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('投稿番号を更新しました。')));
+        } catch (e) {
+          if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('更新に失敗しました。')));
+        } finally {
+          if (mounted) setState(() => _isUploading = false);
+        }
+      }
+    }
+  }
+
   Future<void> _editRemarks() async {
     final controller = TextEditingController(text: _post['remarks'] as String?);
     final newRemarks = await showDialog<String>(
@@ -284,11 +341,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       try {
         await FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).update({
           'remarks': newRemarks,
-          'statusHistory': FieldValue.arrayUnion([{
-            'type': 'edited',
-            'timestamp': DateTime.now().toIso8601String(),
-            'reason': '備考を変更',
-          }]),
         });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('備考を更新しました。')));
@@ -344,11 +396,6 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
         await FirebaseFirestore.instance.collection('posts').doc(_post['id'] as String).update({
           'deductionReason': newReason,
           'deductionPoints': newPoints.toString(),
-          'statusHistory': FieldValue.arrayUnion([{
-            'type': 'edited',
-            'timestamp': DateTime.now().toIso8601String(),
-            'reason': '理由/点数を変更 (旧: ${_post['deductionReason']} / ${_post['deductionPoints']}点)',
-          }]),
         });
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
