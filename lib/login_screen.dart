@@ -35,31 +35,6 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   @override
-  void initState() {
-    super.initState();
-    // ★★★ 追加: アプリ起動時にService Workerのキャッシュをクリアする ★★★
-    if (kIsWeb) {
-      _unregisterServiceWorker();
-    }
-  }
-
-  // Service Workerの登録を解除して、キャッシュを強制的にクリアする
-  Future<void> _unregisterServiceWorker() async {
-    try {
-      // navigator.serviceWorker.getRegistrations() を呼び出し、登録されているすべてのService Workerを取得
-      final registrations = await html.window.navigator.serviceWorker?.getRegistrations();
-      if (registrations != null) {
-        for (final registration in registrations) {
-          await registration.unregister();
-          debugPrint('Service Worker unregistered successfully.');
-        }
-      }
-    } catch (e) {
-      debugPrint('Error unregistering Service Worker: $e');
-    }
-  }
-
-  @override
   void dispose() {
     _nameController.dispose();
     _passwordController.dispose();
@@ -72,11 +47,6 @@ class _LoginScreenState extends State<LoginScreen> {
         _isLoading = true;
         _errorMessage = null;
       });
-
-      // ★★★ 追加: ログイン試行の直前にもService Workerの登録解除を試みる ★★★
-      if (kIsWeb) {
-        await _unregisterServiceWorker();
-      }
       // 処理を擬似的に遅らせて、操作感を与える
       await Future.delayed(const Duration(milliseconds: 500));
 
@@ -156,7 +126,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 autofillHints: const [AutofillHints.username],
                 validator: (value) {
                   if (value == null || value.trim().isEmpty) {
-                    return '名前を入力してください';
+                    return '名前を入力してくださいっ';
                   }
                   return null;
                 },

@@ -26,13 +26,35 @@
   <meta name="apple-mobile-web-app-title" content="chikusai_app">
   <title>chikusai_app</title>
   <link rel="apple-touch-icon" href="icons/Icon-192.png">
+  <!--version 1.0.6 -->
 
   <!-- Favicon -->
   <link rel="icon" type="image/png" href="favicon.png"/>
 
   <link rel="manifest" href="manifest.json">
+
+  <style>
+    #update-notification {
+      display: none;
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      background-color: #333;
+      color: white;
+      padding: 12px 24px;
+      border-radius: 8px;
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+      z-index: 1000;
+      cursor: pointer;
+      font-family: sans-serif;
+    }
+  </style>
 </head>
 <body>
+  <div id="update-notification">
+    新しいバージョンがあります。更新する
+  </div>
   <!--
     You can customize the "flutter_bootstrap.js" script.
     This is useful to provide a custom configuration to the Flutter loader
@@ -42,5 +64,6 @@
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
   <script src="flutter_bootstrap.js" async></script>
+  <script src="app.js" defer></script>
 </body>
 </html>
