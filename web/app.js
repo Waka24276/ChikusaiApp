@@ -1,41 +1,50 @@
+// このスクリプトは、アプリの新しいバージョンがデプロイされたかを定期的にチェックし、
+// 更新があればユーザーに通知します。
+
 window.addEventListener('load', function () {
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('flutter_service_worker.js')
-      .then(function (registration) {
-        // 新しいService Workerがインストールされるのを監視
-        registration.onupdatefound = function () {
-          const installingWorker = registration.installing;
-          if (installingWorker == null) {
-            return;
-          }
-          installingWorker.onstatechange = function () {
-            if (installingWorker.state === 'installed') {
-              if (navigator.serviceWorker.controller) {
-                // 古いService Workerがまだアクティブな場合、
-                // 更新通知を表示
-                console.log('New content is available and will be used when all ' +
-                  'tabs for this page are closed. See https://bit.ly/CRA-PWA.');
-                
-                const notification = document.getElementById('update-notification');
-                if (notification) {
-                  notification.style.display = 'block';
-                  notification.onclick = () => {
-                    // Service Workerに待機をスキップするようメッセージを送信
-                    installingWorker.postMessage({ type: 'SKIP_WAITING' });
-                  };
-                }
-              }
-            }
-          };
-        };
-        // Service Workerからのメッセージをリッスン
-        navigator.serviceWorker.addEventListener('message', event => {
-          if (event.data && event.data.type === 'RELOAD_PAGE') {
-            window.location.reload();
-          }
-        });
-      }).catch(function (error) {
-        console.error('Service Worker registration failed:', error);
+  // アプリの初回読み込み時のバージョンを保存
+  let initialVersion;
+  // 1分ごとに更新をチェック
+  const checkInterval = 60 * 1000;
+
+  // サーバーから最新のindex.htmlを取得する関数
+  async function fetchLatestVersion() {
+    try {
+      // キャッシュをバイパスして、常にサーバーから最新のindex.htmlを取得
+      const response = await fetch('/index.html?t=' + new Date().getTime(), {
+        cache: 'no-store',
       });
+      const htmlText = await response.text();
+      return htmlText;
+    } catch (error) {
+      console.error('Failed to check for updates:', error);
+      return null;
+    }
   }
+
+  // 更新通知を表示する関数
+  function showUpdateNotification() {
+    const notification = document.getElementById('update-notification');
+    if (notification) {
+      notification.style.display = 'block';
+      notification.onclick = () => {
+        // ページを強制的に再読み込みして更新を適用
+        window.location.reload(true);
+      };
+    }
+  }
+
+  // ページ読み込み時に最初のバージョンを取得し、定期チェックを開始
+  fetchLatestVersion().then(html => {
+    if (html) {
+      initialVersion = html;
+      setInterval(async () => {
+        const latestVersion = await fetchLatestVersion();
+        // 読み込み時と現在のバージョンが異なれば、更新があったと判断
+        if (latestVersion && initialVersion !== latestVersion) {
+          showUpdateNotification();
+        }
+      }, checkInterval);
+    }
+  });
 });

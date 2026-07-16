@@ -13,7 +13,11 @@ import 'date_helpers.dart';
 class PostDetailScreen extends StatefulWidget {
   final Map<String, dynamic> post;
 
-  const PostDetailScreen({super.key, required this.post});
+  const PostDetailScreen({
+        super.key,
+    required this.post,
+  });
+
 
   @override
   State<PostDetailScreen> createState() => _PostDetailScreenState();
@@ -159,13 +163,16 @@ class _PostDetailScreenState extends State<PostDetailScreen> {
       appBar: AppBar(
         title: const Text('投稿詳細'),
         actions: [
-          if (_isUploading)
-            const Padding(
-              padding: EdgeInsets.only(right: 16.0),
-              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
-            )
-          else
-            IconButton(icon: const Icon(Icons.edit_outlined), onPressed: _addOrUpdateImage, tooltip: '写真を追加/変更'),
+          IconButton(
+            icon: const Icon(Icons.edit_outlined),
+            onPressed: () {
+              // ホーム画面に編集リクエストを返して画面を閉じる
+              Navigator.pop(context, {'action': 'edit', 'post': _post});
+            },
+            tooltip: 'この投稿を編集する',
+          ),
+          // 写真の追加/変更ボタンも残しておく場合
+          if (!_isUploading) IconButton(icon: const Icon(Icons.add_a_photo_outlined), onPressed: _addOrUpdateImage, tooltip: '写真を追加/変更'),
         ],
       ),
       body: SingleChildScrollView(

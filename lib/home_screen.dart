@@ -163,7 +163,11 @@ List<ViolationCategory> getViolationDataForGrade(int grade) {
 class _HomeScreenState extends State<HomeScreen>
     with SingleTickerProviderStateMixin {
   final _remarksController = TextEditingController();
+  final _postNumberController = TextEditingController(); // 投稿番号入力用
+  final _nameController = TextEditingController(); // 投稿者名入力用
   List<Map<String, dynamic>> _posts = []; // Firestoreから取得したデータを保持
+  Map<String, dynamic>? _editingPost; // 編集中の投稿データを保持
+  DateTime? _selectedPostDate; // ユーザーが選択した違反日
   
   final List<List<Map<String, dynamic>>> _filteredPostsCache = [[], [], [], []];
   final List<Map<int, int>> _classTotalsCache = [{}, {}, {}, {}];
@@ -284,6 +288,9 @@ class _HomeScreenState extends State<HomeScreen>
   @override
   void dispose() {
     _remarksController.dispose();
+    _postNumberController.dispose();
+    _nameController.dispose();
+    // _selectedPostDate は DateTime なので dispose は不要
     _tabController?.dispose(); // null-aware operator を使用して安全に破棄
     _yearController.dispose();
     _classController.dispose();
@@ -325,6 +332,73 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  // 日付選択ダイアログを表示する
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedPostDate ?? DateTime.now(),
+      firstDate: DateTime(2023), // 過去の日付を選択可能に
+      lastDate: DateTime.now(),   // 未来の日付は選択不可
+    );
+    if (picked != null && picked != _selectedPostDate) {
+      setState(() {
+        _selectedPostDate = picked;
+      });
+    }
+  }
+
+  // 3日以上経過した未処理の投稿をチェックして履歴を更新する
+  Future<void> _checkForOverduePosts(List<QueryDocumentSnapshot> docs) async {
+    final now = DateTime.now();
+    final batch = FirebaseFirestore.instance.batch();
+    int updates = 0;
+
+    for (final doc in docs) {
+      final data = doc.data() as Map<String, dynamic>;
+
+      // 1. 審議中や処理済み(非表示)の投稿はスキップ
+      final String? status = data['discussionStatus'];
+      final bool isHidden = data['isHidden'] ?? false;
+      if (status != null || isHidden) {
+        continue;
+      }
+
+      // 2. 違反日または投稿日から3日経過しているかチェック
+      final String? referenceDateStr = data['violationDate'] ?? data['timestamp'];
+      if (referenceDateStr == null) continue;
+      
+      try {
+        final referenceDate = DateTime.parse(referenceDateStr);
+        if (now.difference(referenceDate).inDays < 3) {
+          continue; // 3日未満なのでスキップ
+        }
+      } catch (e) {
+        continue; // 日付の解析に失敗したらスキップ
+      }
+
+      // 3. 既に履歴が追加されていないかチェック
+      final List<dynamic> history = data['statusHistory'] ?? [];
+      final bool alreadyIssued = history.any((h) => h is Map && h['type'] == 'notification_issued');
+      if (alreadyIssued) {
+        continue;
+      }
+
+      // 4. 更新対象としてバッチに追加
+      updates++;
+      batch.update(doc.reference, {
+        'statusHistory': FieldValue.arrayUnion([
+          {'type': 'notification_issued', 'timestamp': now.toIso8601String(), 'reason': '減点通知書発行 (3日経過)'}
+        ])
+      });
+    }
+
+    // 更新対象があればバッチ処理を実行
+    if (updates > 0) {
+      debugPrint('$updates 件の投稿に「減点通知書発行」の履歴を追加します。');
+      await batch.commit();
+    }
+  }
+
   // Firestoreのデータをリアルタイムで監視する
   void _listenToPosts() {
     _postsSubscription = FirebaseFirestore.instance
@@ -332,6 +406,9 @@ class _HomeScreenState extends State<HomeScreen>
         .orderBy('postNumber', descending: true) // 番号の大きい順(新しい順)に取得
         .snapshots()
         .listen((snapshot) {
+      // 3日経過した投稿がないかチェックして更新する
+      _checkForOverduePosts(snapshot.docs);
+
       setState(() {
         _posts = snapshot.docs.map((doc) {
           final data = Map<String, dynamic>.from(doc.data());
@@ -826,35 +903,6 @@ class _HomeScreenState extends State<HomeScreen>
                   style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
                   child: const Text('減点'),
                 ),
-                ElevatedButton(
-                  onPressed: isUploading ? null : () async {
-                    setDialogState(() => isUploading = true);
-                    try {
-                      String? hiddenImageUrl;
-                      if (tempBytes != null) {
-                        final ref = FirebaseStorage.instance.ref().child('hidden_reasons/${DateTime.now().millisecondsSinceEpoch}.jpg');
-                        await ref.putData(tempBytes!);
-                        hiddenImageUrl = await ref.getDownloadURL();
-                      }
-                      await FirebaseFirestore.instance.collection('posts').doc(item['id']).update({
-                        'isHidden': false, // ホーム画面に表示
-                        'discussionStatus': 'finalized', // 即座に「確定」状態にする
-                        'discussionTimestamp': DateTime.now().toIso8601String(),
-                        'hiddenReasonImage': hiddenImageUrl ?? FieldValue.delete(),
-                        'cancellationTags': selectedTags,
-                        'restoreReason': reasonController.text.isNotEmpty ? reasonController.text : FieldValue.delete(),
-                        'statusHistory': FieldValue.arrayUnion([
-                          {'type': 'archived_undiscussed', 'timestamp': DateTime.now().toIso8601String(), 'reason': '担当者: ${selectedTags.join(", ")}\n備考: ${reasonController.text}'}
-                        ]),
-                      });
-                      if (context.mounted) Navigator.pop(context);
-                    } catch (e) {
-                      setDialogState(() => isUploading = false);
-                    }
-                  },
-                  style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
-                  child: const Text('既に3日経過'),
-                ),
               ],
             );
           },
@@ -863,11 +911,68 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
+  // 編集モードを開始する
+  void _startEditing(Map<String, dynamic> post) {
+    setState(() {
+      _editingPost = post;
+      _isPostFormExpanded = true; // フォームを開く
+
+      // フォームに既存のデータを設定
+      _postNumberController.text = (post['postNumber'] ?? '').toString();
+      _remarksController.text = post['remarks'] ?? '';
+      _nameController.text = post['name'] ?? ''; // 投稿者名をセット
+      _selectedPostDate = post['violationDate'] != null ? DateTime.parse(post['violationDate']) : null;
+
+      final String postClass = post['class'] ?? '1年1組';
+      final gradeMatch = RegExp(r'(\d+)年').firstMatch(postClass);
+      final classMatch = RegExp(r'(\d+)組').firstMatch(postClass);
+
+      _selectedValue1 = int.tryParse(gradeMatch?.group(1) ?? '1') ?? 1;
+      _selectedValue2 = classMatch?.group(1) ?? '1';
+
+      _yearController.jumpToItem(_selectedValue1 - 1);
+      _classController.jumpToItem(int.parse(_selectedValue2) - 1);
+
+      final String reason = post['deductionReason'] ?? '未選択';
+      final int points = int.tryParse(post['deductionPoints']?.toString() ?? '1') ?? 1;
+
+      // 理由に一致するViolationItemを探す
+      final allItems = getViolationDataForGrade(1).expand((cat) => cat.items).toList()
+        ..addAll(getViolationDataForGrade(2).expand((cat) => cat.items))
+        ..addAll(getViolationDataForGrade(3).expand((cat) => cat.items));
+      
+      final violation = allItems.firstWhere((item) => item.name == reason, orElse: () => allItems.first);
+
+      _onViolationSelected(violation);
+      _selectedDeductionPoints = points;
+
+      // 点数ピッカーを更新
+      if (violation.minPoints != violation.maxPoints) {
+        final pickerIndex = points - violation.minPoints;
+        if (_deductionPointsPicker.hasClients && pickerIndex >= 0) {
+          _deductionPointsPicker.jumpToItem(pickerIndex);
+        }
+      }
+      // 画像は編集不可とするため、クリア
+      _imageBytes = null;
+    });
+  }
   Future<void> _submitPost() async {
     debugPrint('投稿処理を開始します...');
     if (_isPosting) return;
 
     // 備考に入力がある、画像が選択されている、または減点数が設定されている場合に投稿を許可
+    // 投稿番号の手動入力チェック
+    if (_postNumberController.text.isNotEmpty) {
+      final postNumber = int.tryParse(_postNumberController.text);
+      final query = await FirebaseFirestore.instance.collection('posts').where('postNumber', isEqualTo: postNumber).limit(1).get();
+      if (query.docs.isNotEmpty) {
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('エラー: 投稿番号 $postNumber は既に使用されています。'), backgroundColor: Colors.red));
+        return; // 処理を中断
+      }
+    }
+
     if (_remarksController.text.isNotEmpty ||
         _imageBytes != null ||
         _selectedDeductionPoints > 0) {
@@ -875,6 +980,59 @@ class _HomeScreenState extends State<HomeScreen>
       debugPrint('入力バリデーションOK');
       setState(() => _isPosting = true);
 
+      // 編集モードの場合の処理
+      if (_editingPost != null) {
+        try {
+          final docRef = FirebaseFirestore.instance.collection('posts').doc(_editingPost!['id']);
+          final violationDate = _selectedPostDate ?? DateTime.parse(_editingPost!['timestamp']);
+          final bool isOverdue = DateTime.now().difference(violationDate).inDays >= 3;
+
+          // 履歴の更新ロジック
+          List<dynamic> currentHistory = List.from(_editingPost!['statusHistory'] ?? []);
+          final bool hasIssueNotification = currentHistory.any((h) => h is Map && h['type'] == 'notification_issued');
+
+          if (isOverdue && !hasIssueNotification) {
+            // 3日以上経過していて、まだ通知履歴がなければ追加
+            currentHistory.add({
+              'type': 'notification_issued',
+              'timestamp': DateTime.now().toIso8601String(),
+              'reason': '減点通知書発行 (3日経過)'
+            });
+          } else if (!isOverdue && hasIssueNotification) {
+            // 3日未満になり、通知履歴があれば削除
+            currentHistory.removeWhere((h) => h is Map && h['type'] == 'notification_issued');
+          }
+
+          await docRef.update({
+            'class': '$_selectedValue1年$_selectedValue2組',
+            'deductionPoints': _selectedDeductionPoints.toString(),
+            'deductionReason': _selectedDeductionReason,
+            'remarks': _remarksController.text,
+            'name': _nameController.text, // 投稿者名を更新
+            'violationDate': violationDate.toIso8601String(), // 違反日を更新
+            // 編集者と日時を記録（任意）
+            'lastEditedBy': widget.username,
+            'lastEditedAt': DateTime.now().toIso8601String(),
+            'statusHistory': currentHistory, // 更新された履歴を保存
+          });
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('変更を保存しました。')));
+            setState(() => _editingPost = null); // 編集モードを終了
+            _resetForm(); // フォームをリセット
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('更新エラー: $e')));
+          }
+        } finally {
+          if (mounted) {
+            setState(() => _isPosting = false);
+          }
+        }
+        return; // 新規投稿処理は行わない
+      }
+
+      // --- 以下、新規投稿処理 ---
       try {
         // 統計情報の更新
         if (_selectedDeductionReason != '未選択') {
@@ -897,33 +1055,51 @@ class _HomeScreenState extends State<HomeScreen>
         final counterRef = FirebaseFirestore.instance.collection('metadata').doc('postCounter');
 
         await FirebaseFirestore.instance.runTransaction((transaction) async {
+          final violationDate = _selectedPostDate ?? DateTime.now();
+          final bool isOverdue = DateTime.now().difference(violationDate).inDays >= 3;
+
+          final List<Map<String, String>> history = [
+            {'type': 'created', 'timestamp': DateTime.now().toIso8601String(), 'reason': '新規減点登録'}
+          ];
+
+          if (isOverdue) {
+            history.add({
+              'type': 'notification_issued',
+              'timestamp': DateTime.now().toIso8601String(),
+              'reason': '減点通知書発行 (3日経過)'
+            });
+          }
+
           final postData = {
             'class': '$_selectedValue1年$_selectedValue2組',
             'deductionPoints': _selectedDeductionPoints.toString(),
             'deductionReason': _selectedDeductionReason,
             'remarks': _remarksController.text,
             'imagePath': imageUrl,
-            'timestamp': DateTime.now().toIso8601String(),
+            'timestamp': DateTime.now().toIso8601String(), // 投稿サーバー時刻
+            'violationDate': violationDate.toIso8601String(), // 違反日
             'name': widget.username,
             'isHidden': false,
-            'statusHistory': [
-              {'type': 'created', 'timestamp': DateTime.now().toIso8601String(), 'reason': '新規減点登録'}
-            ],
+            'statusHistory': history,
           };
 
           final counterSnapshot = await transaction.get(counterRef);
           int nextNumber;
 
-          // counterドキュメントが存在しない場合は初期値1で作成
-          if (!counterSnapshot.exists) {
-            nextNumber = 1;
-            transaction.set(counterRef, {'current': 1});
+          // 手動入力された番号があればそれを使用、なければ自動採番
+          if (_postNumberController.text.isNotEmpty) {
+            nextNumber = int.parse(_postNumberController.text);
           } else {
-            final currentNumber = (counterSnapshot.data()!['current'] as int?) ?? 0;
-            nextNumber = currentNumber + 1;
-            transaction.update(counterRef, {'current': nextNumber});
+            // counterドキュメントが存在しない場合は初期値1で作成
+            if (!counterSnapshot.exists) {
+              nextNumber = 1;
+              transaction.set(counterRef, {'current': 1});
+            } else {
+              final currentNumber = (counterSnapshot.data()!['current'] as int?) ?? 0;
+              nextNumber = currentNumber + 1;
+              transaction.update(counterRef, {'current': nextNumber});
+            }
           }
-
           transaction.set(newPostRef, {...postData, 'postNumber': nextNumber});
         });
         debugPrint('Firestoreへの書き込み完了');
@@ -941,20 +1117,7 @@ class _HomeScreenState extends State<HomeScreen>
           );
         }
 
-        // フォームをリセット
-        setState(() {
-          _selectedValue1 = 1;
-          _selectedValue2 = '1';
-          _yearController.jumpToItem(0);
-          _classController.jumpToItem(0);
-          _selectedCategoryIndex = 0;
-          _selectedDeductionPoints = 1;
-          _selectedDeductionReason = '未選択';
-          _selectedViolation = null;
-          if (_deductionPointsPicker.hasClients) _deductionPointsPicker.jumpToItem(0);
-          _remarksController.clear();
-          _imageBytes = null;
-        });
+        _resetForm();
       } catch (e) {
         debugPrint('投稿エラー: $e');
         if (mounted) {
@@ -971,6 +1134,26 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
+  // フォームを初期状態にリセットする
+  void _resetForm() {
+    setState(() {
+      _editingPost = null; // 編集モードを解除
+      _selectedValue1 = 1;
+      _selectedValue2 = '1';
+      _yearController.jumpToItem(0);
+      _classController.jumpToItem(0);
+      _selectedCategoryIndex = 0;
+      _selectedDeductionPoints = 1;
+      _selectedDeductionReason = '未選択';
+      _selectedViolation = null;
+      if (_deductionPointsPicker.hasClients) _deductionPointsPicker.jumpToItem(0);
+      _remarksController.clear();
+      _postNumberController.clear();
+      _nameController.clear();
+      _selectedPostDate = null; // 選択された日付をリセット
+      _imageBytes = null;
+    });
+  }
   @override
   Widget build(BuildContext context) {
     // コントローラが初期化されていない場合は読み込み中を表示
@@ -1094,13 +1277,13 @@ class _HomeScreenState extends State<HomeScreen>
     for (var post in sourcePosts) {
       final bool isHidden = post['isHidden'] ?? false;
       final String? status = post['discussionStatus'];
+      // 違反日(violationDate)がなければ投稿日(timestamp)を基準にする
+      final String referenceDateStr = post['violationDate'] ?? post['timestamp'] ?? '';
 
       // 「口頭可能」状態で3営業日経過したか判定
       bool isOralPossibleExpired = false;
-      String? refTimestampStr = post['discussionTimestamp'];
-      
-      // discussionTimestampがない場合、履歴から適切な時間を探す
-      if (refTimestampStr == null) {
+      String? refTimestampStr = post['discussionTimestamp']; // 審議開始日時
+      if (refTimestampStr == null && referenceDateStr.isNotEmpty) {
         final List<dynamic> history = post['statusHistory'] ?? [];
         final refEvent = history.reversed.firstWhere(
           (e) => e is Map && (e['type'] == 'finalized_deduction' || e['type'] == 'archived_undiscussed' || e['type'] == 'discussion_started'),
@@ -1108,10 +1291,11 @@ class _HomeScreenState extends State<HomeScreen>
         );
         if (refEvent != null) refTimestampStr = refEvent['timestamp'];
       }
-
-      if (refTimestampStr != null) {
+      // 審議開始日時がなければ、違反日/投稿日を基準にする
+      final dateToCompare = refTimestampStr ?? referenceDateStr;
+      if (dateToCompare.isNotEmpty) {
         try {
-          final dt = DateTime.parse(refTimestampStr); // 営業日計算を元に戻す
+          final dt = DateTime.parse(dateToCompare);
           isOralPossibleExpired = DateTime.now().isAfter(dt.add(const Duration(days: 3))); // 3暦日後に変更
         } catch (_) {}
       }
@@ -1176,9 +1360,9 @@ class _HomeScreenState extends State<HomeScreen>
                         children: [
                           const Icon(Icons.edit_note, color: Colors.blueGrey),
                           const SizedBox(width: 8),
-                          const Text(
-                            '減点登録',
-                            style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
+                          Text(
+                            _editingPost == null ? '減点登録' : '投稿の編集',
+                            style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
                           ),
                           const Spacer(),
                           Icon(
@@ -1241,6 +1425,50 @@ class _HomeScreenState extends State<HomeScreen>
                         ],
                       ),
                       const SizedBox(height: 24),
+                      // 投稿番号入力フィールド
+                      TextField(
+                        controller: _postNumberController,
+                        keyboardType: TextInputType.number,
+                        enabled: _editingPost == null, // 編集モードでは番号の変更を不可にする
+                        decoration: const InputDecoration(
+                          labelText: '投稿番号 (任意)',
+                          hintText: '空欄の場合は自動採番',
+                          border: OutlineInputBorder(),
+                          prefixIcon: Icon(Icons.numbers),
+                        ),
+                      ),
+                      const SizedBox(height: 24),
+                      // 投稿者名入力フィールド (編集モードでのみ表示)
+                      if (_editingPost != null) ...[
+                        TextField(
+                          controller: _nameController,
+                          decoration: const InputDecoration(
+                            labelText: '投稿者名',
+                            border: OutlineInputBorder(),
+                            prefixIcon: Icon(Icons.person_outline),
+                          ),
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                      // 違反日選択フィールド
+                      Row(
+                        children: [
+                          const Icon(Icons.calendar_today_outlined, size: 20, color: Colors.grey),
+                          const SizedBox(width: 8),
+                          const Text('違反日', style: TextStyle(fontWeight: FontWeight.bold)),
+                          const Spacer(),
+                          TextButton(
+                            onPressed: () => _selectDate(context),
+                            child: Text(
+                              _selectedPostDate == null
+                                ? '日付を選択 (任意)'
+                                : '${_selectedPostDate!.year}/${_selectedPostDate!.month}/${_selectedPostDate!.day}',
+                              style: TextStyle(color: _selectedPostDate == null ? Colors.grey : Colors.blue, fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
                       // クイック選択セクション
                       const Row(
                         children: [
@@ -1596,12 +1824,13 @@ class _HomeScreenState extends State<HomeScreen>
     final bool isDeduction = status == 'deduction'; // 口頭可能(審議中)
 
     // 3日以内の投稿かどうか判定(ナンバリングの色用)
-    final String timestampStr = item['timestamp'] ?? '';
+    // 違反日(violationDate)がなければ投稿日(timestamp)を基準にする
+    final String referenceDateStr = item['violationDate'] ?? item['timestamp'] ?? '';
     bool isRecent = false;
-    if (timestampStr.isNotEmpty) {
+    if (referenceDateStr.isNotEmpty) {
       try {
-        final DateTime timestamp = DateTime.parse(timestampStr);
-        isRecent = DateTime.now().isBefore(timestamp.add(const Duration(days: 3))); // 3日以内なら最近の投稿
+        final DateTime referenceDate = DateTime.parse(referenceDateStr);
+        isRecent = DateTime.now().isBefore(referenceDate.add(const Duration(days: 3))); // 3日以内なら最近の投稿
       } catch (_) {}
     }
     
@@ -1641,11 +1870,14 @@ class _HomeScreenState extends State<HomeScreen>
           borderRadius: BorderRadius.circular(12),
         ),
         child: InkWell(
-          onTap: () {
-            Navigator.push(
+          onTap: () async {
+            final result = await Navigator.push(
               context,
               MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)),
             );
+            if (result is Map && result['action'] == 'edit' && mounted) {
+              _startEditing(result['post'] as Map<String, dynamic>);
+            }
           },
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -1691,6 +1923,12 @@ class _HomeScreenState extends State<HomeScreen>
                                 onPressed: () => _toggleHidePost(item),
                                 tooltip: toggleTooltipText,
                               ),
+                            IconButton(
+                              visualDensity: VisualDensity.compact,
+                              icon: const Icon(Icons.edit_outlined, size: 20, color: Colors.grey),
+                              onPressed: () => _startEditing(item),
+                              tooltip: 'この投稿を編集する',
+                            ),
                             IconButton(
                               visualDensity: VisualDensity.compact,
                               icon: const Icon(Icons.delete_outline, size: 20, color: Colors.grey),
@@ -1771,16 +2009,25 @@ class _HomeScreenState extends State<HomeScreen>
                 tooltip: toggleTooltipText,
               ),
             IconButton(
+              icon: const Icon(Icons.edit_outlined, color: Colors.grey),
+              onPressed: () => _startEditing(item),
+              tooltip: 'この投稿を編集する',
+            ),
+            IconButton(
               icon: const Icon(Icons.delete_outline, color: Colors.grey),
               onPressed: () => _deletePost(item),
             ),
           ],
         ),
-        onTap: () {
-          Navigator.push(
+        onTap: () async {
+          final result = await Navigator.push(
             context,
             MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)),
           );
+          // 戻ってきたときに 'edit' アクションがあれば編集を開始
+          if (result is Map && result['action'] == 'edit' && mounted) {
+            _startEditing(result['post'] as Map<String, dynamic>);
+          }
         },
       ),
     );
@@ -1853,12 +2100,13 @@ class _HomeScreenState extends State<HomeScreen>
             final item = displayedPosts[index];
 
             // 表形式の方でも3日以内判定を行う
-            final String timestampStr = item['timestamp'] ?? '';
+            // 違反日(violationDate)がなければ投稿日(timestamp)を基準にする
+            final String referenceDateStr = item['violationDate'] ?? item['timestamp'] ?? '';
             bool isRecent = false;
-            if (timestampStr.isNotEmpty) {
+            if (referenceDateStr.isNotEmpty) {
               try {
-                final DateTime timestamp = DateTime.parse(timestampStr);
-                isRecent = DateTime.now().isBefore(timestamp.add(const Duration(days: 3)));
+                final DateTime referenceDate = DateTime.parse(referenceDateStr);
+                isRecent = DateTime.now().isBefore(referenceDate.add(const Duration(days: 3)));
               } catch (_) {}
             }
 
@@ -1873,7 +2121,12 @@ class _HomeScreenState extends State<HomeScreen>
               cells: [
                 DataCell(
                   Text('${item['postNumber'] ?? 0}', style: TextStyle(color: shouldBePink ? Colors.pink : Colors.grey)),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item))),
+                  onTap: () async {
+                    final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)));
+                    if (result is Map && result['action'] == 'edit' && mounted) {
+                      _startEditing(result['post'] as Map<String, dynamic>);
+                    }
+                  },
                 ),
                 DataCell(
                   Text(item['timestamp'] != null
@@ -1883,26 +2136,42 @@ class _HomeScreenState extends State<HomeScreen>
                           .substring(5, 16)
                           .replaceAll('-', '/')
                       : ''),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item))),
+                  onTap: () async {
+                    final result = await Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)));
+                    if (result is Map && result['action'] == 'edit' && mounted) {
+                      _startEditing(result['post'] as Map<String, dynamic>);
+                    }
+                  },
                 ),
-                DataCell(Text(item['class']?.toString() ?? ''), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
-                DataCell(Text(item['deductionPoints']?.toString() ?? ''), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
+                DataCell(Text(item['class']?.toString() ?? ''), onTap: () => _navigateToDetailAndHandleEdit(context, item)),
+                DataCell(Text(item['deductionPoints']?.toString() ?? ''), onTap: () => _navigateToDetailAndHandleEdit(context, item)),
                 DataCell(
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 150),
                     child: Text(item['deductionReason']?.toString() ?? '', overflow: TextOverflow.ellipsis),
-                  ), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
+                  ), onTap: () => _navigateToDetailAndHandleEdit(context, item)),
                 DataCell(
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 80),
                     child: Text(item['name']?.toString() ?? '不明', overflow: TextOverflow.ellipsis),
-                  ), onTap: () => Navigator.push(context, MaterialPageRoute(builder: (context) => PostDetailScreen(post: item)))),
+                  ), onTap: () => _navigateToDetailAndHandleEdit(context, item)),
               ],
             );
           }),
         ),
       ),
     );
+  }
+
+  // 詳細画面へ遷移し、編集リクエストをハンドルする共通メソッド
+  Future<void> _navigateToDetailAndHandleEdit(BuildContext context, Map<String, dynamic> post) async {
+    final result = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => PostDetailScreen(post: post)),
+    );
+    if (result is Map && result['action'] == 'edit' && mounted) {
+      _startEditing(result['post'] as Map<String, dynamic>);
+    }
   }
 
   /// 表示中のデータをA4サイズのPDFプレビューとして表示する
